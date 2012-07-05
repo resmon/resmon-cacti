@@ -256,7 +256,14 @@ function get_colored_device_status($disabled, $status) {
 		);
 
 	if ($disabled) {
+        /* modify for multi user start */
+        switch ($disabled) {
+            case "on":
 		return "<span style='color: #$disabled_color'>Disabled</span>";
+            case "ps":
+                return "<span style='color: #$disabled_color'>Pause</span>";
+        }
+        /* modify for multi user end */
 	}else{
 		switch ($status) {
 			case HOST_DOWN:

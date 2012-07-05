@@ -260,6 +260,13 @@ function draw_nontemplated_fields_data_source($data_template_id, $local_data_id,
 		}
 	}
 
+    /* modify for multi user start */
+    if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+        if($form_array["data_source_path"]) {
+            $form_array["data_source_path"]["method"] = "";
+        }
+    }
+    /* modify for multi user end */
 	/* setup form options */
 	if ($alternate_colors == true) {
 		$form_config_array = array("no_form_tag" => true);

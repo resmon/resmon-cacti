@@ -457,6 +457,11 @@ while ($poller_runs_completed < $poller_runs) {
 			usleep($sleep_time * 1000000);
 			api_plugin_hook('poller_top');
 		}
+        /* modify for multi user start */
+        processed_time();
+        rrd_clean();
+        purge_log();
+        /* modify for multi user end */
 	}else if (read_config_option('log_verbosity') >= POLLER_VERBOSITY_MEDIUM || $debug) {
 		cacti_log("WARNING: Cacti Polling Cycle Exceeded Poller Interval by " . $loop_end-$loop_start-$poller_interval . " seconds", TRUE, "POLLER");
 	}
@@ -503,5 +508,179 @@ function display_help() {
 }
 
 api_plugin_hook('poller_bottom');
+
+/* modify for multi user start */
+function processed_time() {
+    // create table
+    if (!db_fetch_row("SHOW TABLE STATUS LIKE 'processed_time'")) {
+        $sql = "
+            CREATE TABLE IF NOT EXISTS `processed_time` (
+              `user_id`             mediumint(8) unsigned NOT NULL default '0',
+              `host_id`             mediumint(8) unsigned NOT NULL default '0',
+              `time`                datetime NOT NULL default '0000-00-00 00:00:00',
+              `disabled`            char(2) default NULL,
+              `status`              tinyint(2) NOT NULL default '0',
+              `status_event_count`  mediumint(8) unsigned NOT NULL default '0',
+              `cur_time`            decimal(10,5) default '0.00000',
+              PRIMARY KEY           (user_id,host_id,time),
+              KEY user_id           (user_id),
+              KEY host_id           (host_id)
+            ) ENGINE=MyISAM;";
+        db_execute($sql);
+    }
+
+    // get processed_time from host
+    $hosts = db_fetch_assoc("
+        SELECT DISTINCT user_auth_perms.user_id, host.id AS host_id, host.disabled, host.status, host.status_event_count, 
+            CASE 
+                WHEN host.disabled = 'on' OR host.disabled = 'ps' THEN 0
+                WHEN host.disabled = '' AND ((host.status = '3' AND host.status_event_count > 0) OR host.status = '1') THEN 
+                    (CASE host.availability_method 
+                        WHEN '1' THEN GREATEST(host.snmp_timeout, host.ping_timeout * host.ping_retries) / 1000 
+                        WHEN '4' THEN LEAST(snmp_timeout, ping_timeout * host.ping_retries) / 1000 
+                        WHEN '2' THEN host.snmp_timeout / 1000 
+                        WHEN '3' THEN host.ping_timeout * host.ping_retries / 1000 
+                        ELSE '1' 
+                    END) 
+                ELSE host.cur_time 
+            END cur_time 
+        FROM host 
+            INNER JOIN user_auth_perms ON host.id = user_auth_perms.item_id AND user_auth_perms.type = '3'
+        ORDER BY user_auth_perms.user_id");
+
+    // get processed_time from host,processed_time table @by user_id ... check total_time_max
+    if (isset($hosts)) { 
+        // write to processed_time log
+        $now = date("Y-m-d H:i:s");
+        foreach ($hosts as $host) {
+            $host["time"] = $now;
+            sql_save($host, 'processed_time', array('user_id', 'host_id', 'time', 'disabled', 'status', 'status_event_count', 'cur_time'), false);
+        }
+
+        // if over total_time_max(sec) then replace ps(pause) label
+        $users = db_fetch_assoc("
+            SELECT processed_time.user_id, SUM(processed_time.cur_time) AS cur_time, user_auth.full_name FROM processed_time
+                INNER JOIN user_auth ON processed_time.user_id = user_auth.id
+            WHERE processed_time.time > SUBDATE(NOW(), INTERVAL 1 HOUR) AND processed_time.disabled = '' AND processed_time.cur_time > 0
+            GROUP BY processed_time.user_id");
+
+        if (isset($users)) {
+            define("STATUS_EVENT_MAX", 3);
+            foreach ($hosts as $host) {
+                $check = FALSE;
+                foreach ($users as $user) {
+                    if ($host["user_id"] == $user["user_id"]) {
+                        // user param
+                        preg_match_all("/(\w+)\=(\w+)/u", $user["full_name"], $matches);
+                        $user_param = array_combine($matches[1], $matches[2]);
+                        if (is_numeric($user_param["res"]) && $user_param["res"] != 0) {
+                            // pause
+                            if ($user["cur_time"] > $user_param["res"]) {
+                                if ($host["disabled"] === "") {
+                                    update_host_disabled($host["host_id"], "ps");
+                                }
+                            } else {
+                                if ($host["disabled"] === "ps") {
+                                    update_host_disabled($host["host_id"], "");
+                                }
+                            }
+                        }
+                        $check = TRUE;
+                        break;
+                    }
+                }
+                // disable
+                if ($host["disabled"] === "" && $host["status"] == 1 && $host["status_event_count"] > STATUS_EVENT_MAX) {
+                    update_host_disabled($host["host_id"], "on");
+                    $check = TRUE;
+                }
+                // pause cancel (no processed_time log last 1 hour)
+                if ($check == FALSE && $host["disabled"] === "ps") {
+                    update_host_disabled($host["host_id"], "");
+                }
+            }
+        }
+    }
+}
+
+function update_host_disabled($host_id, $disabled) {
+    db_execute("UPDATE host SET disabled = '$disabled' WHERE id = '$host_id'");
+    
+    /* update poller cache */
+    if ($disabled === "") {
+        $data_sources = db_fetch_assoc("SELECT id FROM data_local WHERE host_id = '$host_id'");
+        $poller_items = array();
+        
+        include(dirname(__FILE__) . "/include/global.php");
+        include_once($config["base_path"] . "/lib/utility.php");
+        if (sizeof($data_sources) > 0) {
+            foreach ($data_sources as $data_source) {
+                $local_data_ids[] = $data_source["id"];
+                $poller_items     = array_merge($poller_items, update_poller_cache($data_source["id"]));
+            }
+        }
+
+        poller_update_poller_cache_from_buffer($local_data_ids, $poller_items);
+    } else {
+        db_execute("DELETE FROM poller_item WHERE host_id = '$host_id'");
+        db_execute("DELETE FROM poller_reindex WHERE host_id = '$host_id'");
+    }
+}
+
+function rrd_clean() {
+    $rrds = db_fetch_assoc("SELECT plugin_rrdclean.name FROM plugin_rrdclean WHERE plugin_rrdclean.local_data_id = '0'");
+    foreach ($rrds as $rrd) {
+        db_execute("INSERT INTO plugin_rrdclean_action VALUES('', '" . $rrd["name"] . "','0','1')");
+        db_execute("DELETE FROM plugin_rrdclean WHERE plugin_rrdclean.name = '" . $rrd["name"] . "'");
+    }
+    
+    // remove empty rrd directory
+    include(dirname(__FILE__) . "/include/global.php");
+    $dirs = dirlist($config['rra_path'], array("archive","backup"), TRUE);
+    foreach ($dirs as $dir) {
+        rmdir($dir);
+    }
+}
+
+function dirlist($path, $ignore, $empty){
+    if ($handle = opendir($path)) {
+        while (false !== ($entry = readdir($handle))) {
+            if ($entry != "." && $entry != ".." && is_dir($path . "/" . $entry) && in_array($entry, $ignore) == FALSE) {
+                if ($empty == TRUE) {
+                    $handle2 = opendir($path . "/" . $entry);
+                    $flg = FALSE;
+                    while (false !== ($entry2 = readdir($handle2))) {
+                        if ($entry2 != "." && $entry2 != "..") {
+                            $flg = TRUE;
+                            break;
+                        }
+                    }
+                    closedir($handle2);
+                    if ($flg == FALSE) $dirs[] = $path . "/" . $entry;
+                } else {
+                    $dirs[] = $path . "/" . $entry;
+                }
+            }
+        }
+        closedir($handle);
+        return $dirs;
+    }
+}
+
+function purge_log() {
+    $time = time();
+    $now = date("Y-m-d H:i:s", $time);
+
+    db_execute("DELETE FROM processed_time WHERE time < SUBDATE('$now', interval 12 hour)");
+    db_execute("DELETE FROM user_log WHERE time < SUBDATE('$now', interval 60 day)");
+    db_execute("DELETE FROM plugin_thold_log WHERE time < '" . strtotime("-60 day", $time) . "'");
+    db_execute("DELETE FROM graph_access_counter WHERE local_graph_id NOT IN (SELECT id FROM graph_local)");
+    
+    // remove image caching
+    //$cache_directory = read_config_option("boost_png_cache_directory", TRUE);
+    //exec("find " . $cache_directory . "/lgi_*_rrai_*.png -mtime +60 | xargs rm");
+}
+
+/* modify for multi user end */
 
 ?>

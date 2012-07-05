@@ -44,7 +44,11 @@ $device_actions = array(
 	6 => "Change Availability Options"
 	);
 
+/* modify for multi user start */
+if ($_SESSION["permission"] > ACCESS_NORMAL_USER) {
 $device_actions = api_plugin_hook_function('device_action_array', $device_actions);
+}
+/* modify for multi user end */
 
 /* set default action */
 if (!isset($_REQUEST["action"])) { $_REQUEST["action"] = ""; }
@@ -99,6 +103,9 @@ switch ($_REQUEST["action"]) {
    -------------------------- */
 
 function add_tree_names_to_actions_array() {
+    /* modify for multi user start */
+    return;
+    /* modify for multi user end */	
 	global $device_actions;
 
 	/* add a list of tree names to the actions dropdown */
@@ -116,6 +123,13 @@ function add_tree_names_to_actions_array() {
    -------------------------- */
 
 function form_save() {
+    /* modify for multi user start */
+    if(!empty($_POST["id"])) {
+        if (!check_host($_POST["id"])) access_denied();
+    } else {
+        if (!check_resource_count(RESOURCE_HOST)) access_denied();
+    }
+    /* modify for multi user end */
 	if ((!empty($_POST["add_dq_x"])) && (!empty($_POST["snmp_query_id"]))) {
 		/* ================= input validation ================= */
 		input_validate_input_number(get_request_var_post("id"));
@@ -159,6 +173,18 @@ function form_save() {
 				$_POST["ping_retries"], $_POST["notes"],
 				$_POST["snmp_auth_protocol"], $_POST["snmp_priv_passphrase"],
 				$_POST["snmp_priv_protocol"], $_POST["snmp_context"], $_POST["max_oids"], $_POST["device_threads"]);
+            /* modify for multi user start */
+            if ($_SESSION["permission"] <= ACCESS_ADMINISTRATOR) {
+                if (!db_fetch_cell("SELECT graph_tree_items.id FROM graph_tree_items WHERE graph_tree_items.host_id = '" . $host_id . "'")) {
+                    exec("php ./cli/add_tree.php --type=node --node-type=host --tree-id=" . $_SESSION["private_tree_id"] . " --host-id=" . $host_id . " --host-group-style=1");
+                    exec("php ./cli/add_perms.php --user-id=" . $_SESSION["sess_user_id"] . " --item-type=host --item-id=" . $host_id);
+                }
+                /* clear graph tree cache on save - affects current user only, other users should see changes in <5 minutes */
+                if (isset($_SESSION['dhtml_tree'])) {
+                    unset($_SESSION['dhtml_tree']);
+                }
+            }
+            /* modify for multi user end */
 		}
 
 		header("Location: host.php?action=edit&id=" . (empty($host_id) ? $_POST["id"] : $host_id));
@@ -170,11 +196,28 @@ function form_save() {
    ------------------------ */
 
 function form_actions() {
+    /* modify for multi user start */
+    if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+        $rows = db_fetch_assoc("
+            SELECT host.id FROM host
+                INNER JOIN user_auth_perms ON host.id = user_auth_perms.item_id AND user_auth_perms.user_id = '" . $_SESSION["sess_user_id"] ."' AND user_auth_perms.type = '3'");
+        foreach ($rows as $row) {
+            $hosts[] = $row["id"];
+        }
+    }
+    /* modify for multi user end */ 
 	global $colors, $device_actions, $fields_host_edit;
 
 	/* if we are to save this form, instead of display it */
 	if (isset($_POST["selected_items"])) {
 		$selected_items = unserialize(stripslashes($_POST["selected_items"]));
+        /* modify for multi user start */
+        if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+            for ($i=0;($i<count($selected_items));$i++) {
+                if (!in_array($selected_items[$i], $hosts)) access_denied();
+            }
+        }
+        /* modify for multi user end */
 
 		if ($_POST["drp_action"] == "2") { /* Enable Selected Devices */
 			for ($i=0;($i<count($selected_items));$i++) {
@@ -182,6 +225,13 @@ function form_actions() {
 				input_validate_input_number($selected_items[$i]);
 				/* ==================================================== */
 
+                /* modify for multi user start */
+                if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+                    if (db_fetch_cell("SELECT id FROM host WHERE id = '". $selected_items[$i] . "' AND disabled = 'ps'")) {
+                        continue;
+                    }
+                }
+                /* modify for multi user end */
 				db_execute("update host set disabled='' where id='" . $selected_items[$i] . "'");
 
 				/* update poller cache */
@@ -203,6 +253,13 @@ function form_actions() {
 				input_validate_input_number($selected_items[$i]);
 				/* ==================================================== */
 
+                /* modify for multi user start */
+                if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+                    if (db_fetch_cell("SELECT id FROM host WHERE id = '". $selected_items[$i] . "' AND disabled = 'ps'")) {
+                        continue;
+                    }
+                }
+                /* modify for multi user end */
 				db_execute("update host set disabled='on' where id='" . $selected_items[$i] . "'");
 
 				/* update poller cache */
@@ -306,9 +363,23 @@ function form_actions() {
 			}
 
 			api_device_remove_multi($devices_to_act_on);
-
+            /* modify for multi user start */
+            if ($_SESSION["permission"] <= ACCESS_ADMINISTRATOR) {
+                foreach ($devices_to_act_on as $device_id) {
+                    db_execute("DELETE FROM user_auth_perms WHERE type = 3 AND user_id = '" . $_SESSION["sess_user_id"] ."' AND item_id = '$device_id'");
+                }
+            }
+            /* modify for multi user end */
 			api_plugin_hook_function('device_remove', $devices_to_act_on);
 		}elseif (preg_match("/^tr_([0-9]+)$/", $_POST["drp_action"], $matches)) { /* place on tree */
+            /* modify for multi user start */
+            if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+                input_validate_input_number(get_request_var_post("tree_id"));
+                if ($_POST["tree_id"] != $_SESSION["public_tree_id"]) {
+                    access_denied();
+                }
+            }
+            /* modify for multi user end */
 			for ($i=0;($i<count($selected_items));$i++) {
 				/* ================= input validation ================= */
 				input_validate_input_number($selected_items[$i]);
@@ -318,6 +389,11 @@ function form_actions() {
 
 				api_tree_item_save(0, $_POST["tree_id"], TREE_ITEM_TYPE_HOST, $_POST["tree_item_id"], "", 0, read_graph_config_option("default_rra_id"), $selected_items[$i], 1, 1, false);
 			}
+            /* modify for multi user start */
+            if (isset($_SESSION['dhtml_tree'])) {
+                unset($_SESSION['dhtml_tree']);
+            }
+            /* modify for multi user end */
 		} else {
 			api_plugin_hook_function('device_action_execute', $_POST['drp_action']);
 		}
@@ -336,6 +412,11 @@ function form_actions() {
 			input_validate_input_number($matches[1]);
 			/* ==================================================== */
 
+            /* modify for multi user start */
+            if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+                if (!in_array($matches[1], $hosts)) access_denied();
+            }
+            /* modify for multi user start */
 			$host_list .= "<li>" . htmlspecialchars(db_fetch_cell("select description from host where id=" . $matches[1])) . "<br>";
 			$host_array[$i] = $matches[1];
 
@@ -395,6 +476,12 @@ function form_actions() {
 						}
 					}
 
+                    /* modify for multi user start */
+                    if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+                        $form_array["snmp_timeout"]["method"] = "hidden";
+                        $form_array["max_oids"]["method"] = "hidden";
+                    }
+                    /* modify for multi user end */
 					draw_edit_form(
 						array(
 							"config" => array("no_form_tag" => true),
@@ -446,7 +533,11 @@ function form_actions() {
 					<td class='textArea' bgcolor='#" . $colors["form_alternate1"]. "'>
 						<p>When you click \"Continue\" the following Device(s) will be deleted.</p>
 						<p><ul>" . $host_list . "</ul></p>";
+                        /* modify for multi user start */
+                        if ($_SESSION["permission"] == ACCESS_ADMINISTRATOR) {
 						form_radio_button("delete_type", "2", "1", "Leave all Graph(s) and Data Source(s) untouched.  Data Source(s) will be disabled however.", "1"); print "<br>";
+                        }
+                        /* modify for multi user end */
 						form_radio_button("delete_type", "2", "2", "Delete all associated <strong>Graph(s)</strong> and <strong>Data Source(s)</strong>.", "1"); print "<br>";
 						print "</td></tr>
 					</td>
@@ -502,6 +593,9 @@ function host_reload_query() {
 	input_validate_input_number(get_request_var("host_id"));
 	/* ==================================================== */
 
+    /* modify for multi user start */
+    if (!check_host($_GET["host_id"])) access_denied();
+    /* modify for multi user end */
 	run_data_query($_GET["host_id"], $_GET["id"]);
 }
 
@@ -511,6 +605,9 @@ function host_remove_query() {
 	input_validate_input_number(get_request_var("host_id"));
 	/* ==================================================== */
 
+   /* modify for multi user start */
+    if (!check_host($_GET["host_id"])) access_denied();
+    /* modify for multi user end */
 	api_device_dq_remove($_GET["host_id"], $_GET["id"]);
 }
 
@@ -520,6 +617,9 @@ function host_remove_gt() {
 	input_validate_input_number(get_request_var("host_id"));
 	/* ==================================================== */
 
+    /* modify for multi user start */
+    if (!check_host($_GET["host_id"])) access_denied();
+    /* modify for multi user end */
 	api_device_gt_remove($_GET["host_id"], $_GET["id"]);
 }
 
@@ -534,6 +634,9 @@ function host_remove() {
 	input_validate_input_number(get_request_var("id"));
 	/* ==================================================== */
 
+    /* modify for multi user start */
+    if (!check_host($_GET["id"])) access_denied();
+    /* modify for multi user end */
 	if ((read_config_option("deletion_verification") == "on") && (!isset($_GET["confirm"]))) {
 		include("./include/top_header.php");
 		form_confirm("Are You Sure?", "Are you sure you want to delete the host <strong>'" . htmlspecialchars(db_fetch_cell("select description from host where id=" . $_GET["id"])) . "'</strong>?", htmlspecialchars("host.php"), htmlspecialchars("host.php?action=remove&id=" . $_GET["id"]));
@@ -553,6 +656,9 @@ function host_edit() {
 	input_validate_input_number(get_request_var("id"));
 	/* ==================================================== */
 
+    /* modify for multi user start */
+    if (!check_host($_GET["id"])) $_GET["id"] = "";
+    /* modify for multi user end */
 	api_plugin_hook('host_edit_top');
 
 	if (!empty($_GET["id"])) {
@@ -682,6 +788,25 @@ function host_edit() {
 		$fields_host_edit["host_template_id"]["value"] = $_GET["host_template_id"];
 	}
 
+    /* modify for multi user start */
+    if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+        $fields_host_edit["device_threads"]["method"] = "hidden";
+        $fields_host_edit["ping_timeout"]["method"] = "hidden";
+        $fields_host_edit["ping_retries"]["method"] = "hidden";
+        $fields_host_edit["snmp_timeout"]["method"] = "hidden";
+        $fields_host_edit["max_oids"]["method"] = "hidden";
+        
+        $fields_host_edit["host_template_id"]["sql"] = "SELECT id,name FROM host_template WHERE name NOT LIKE '%@system' ORDER BY name";
+    }
+    if ($_SESSION["permission"] < ACCESS_PREMIUM_USER) {
+        if ($fields_host_edit["thold_send_email"]) {
+            $fields_host_edit["thold_send_email"]["method"] = "hidden";
+        }
+    }
+    if ($host["disabled"] === "ps") {
+        $fields_host_edit["disabled"]["method"] = "";
+    }
+    /* modify for multi user end */
 	draw_edit_form(array(
 		"config" => array("form_name" => "chk"),
 		"fields" => inject_form_variables($fields_host_edit, (isset($host) ? $host : array()))
@@ -734,8 +859,10 @@ function host_edit() {
 		case "0": // none
 			document.getElementById('row_ping_method').style.display  = "none";
 			document.getElementById('row_ping_port').style.display    = "none";
+            if (document.getElementById('row_ping_timeout')) {
 			document.getElementById('row_ping_timeout').style.display = "none";
 			document.getElementById('row_ping_retries').style.display = "none";
+            }
 
 			break;
 		case "2": // snmp
@@ -743,8 +870,10 @@ function host_edit() {
 		case "6": // snmp getNext
 			document.getElementById('row_ping_method').style.display  = "none";
 			document.getElementById('row_ping_port').style.display    = "none";
+            if (document.getElementById('row_ping_timeout')) {
 			document.getElementById('row_ping_timeout').style.display = "";
 			document.getElementById('row_ping_retries').style.display = "";
+            }
 
 			break;
 		default: // ping ok
@@ -752,16 +881,20 @@ function host_edit() {
 			case "1": // ping icmp
 				document.getElementById('row_ping_method').style.display  = "";
 				document.getElementById('row_ping_port').style.display    = "none";
+                if (document.getElementById('row_ping_timeout')) {
 				document.getElementById('row_ping_timeout').style.display = "";
 				document.getElementById('row_ping_retries').style.display = "";
+                }
 
 				break;
 			case "2": // ping udp
 			case "3": // ping tcp
 				document.getElementById('row_ping_method').style.display  = "";
 				document.getElementById('row_ping_port').style.display    = "";
+                if (document.getElementById('row_ping_timeout')) {
 				document.getElementById('row_ping_timeout').style.display = "";
 				document.getElementById('row_ping_retries').style.display = "";
+                }
 
 				break;
 			}
@@ -940,8 +1073,10 @@ function host_edit() {
 			document.getElementById('row_snmp_priv_protocol').style.display   = "none";
 			document.getElementById('row_snmp_context').style.display         = "none";
 			document.getElementById('row_snmp_port').style.display            = "none";
+            if (document.getElementById('row_snmp_timeout')) {
 			document.getElementById('row_snmp_timeout').style.display         = "none";
 			document.getElementById('row_max_oids').style.display             = "none";
+            }
 
 			break;
 		case "v1v2":
@@ -953,8 +1088,10 @@ function host_edit() {
 			document.getElementById('row_snmp_priv_protocol').style.display   = "none";
 			document.getElementById('row_snmp_context').style.display         = "none";
 			document.getElementById('row_snmp_port').style.display            = "";
+            if (document.getElementById('row_snmp_timeout')) {
 			document.getElementById('row_snmp_timeout').style.display         = "";
 			document.getElementById('row_max_oids').style.display             = "";
+            }
 
 			break;
 		case "v3":
@@ -966,8 +1103,10 @@ function host_edit() {
 			document.getElementById('row_snmp_priv_protocol').style.display   = "";
 			document.getElementById('row_snmp_context').style.display         = "";
 			document.getElementById('row_snmp_port').style.display            = "";
+            if (document.getElementById('row_snmp_timeout')) {
 			document.getElementById('row_snmp_timeout').style.display         = "";
 			document.getElementById('row_max_oids').style.display             = "";
+            }
 
 			break;
 		}
@@ -1014,11 +1153,17 @@ function host_edit() {
 			and host_graph.host_id=" . $_GET["id"] . "
 			order by graph_templates.name");
 
+        /* modify for multi user start */
+        $sql_where = "";
+        if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+            $sql_where = "AND graph_templates.name NOT LIKE '%@system'";
+        }
 		$available_graph_templates = db_fetch_assoc("SELECT
 			graph_templates.id, graph_templates.name
 			FROM snmp_query_graph RIGHT JOIN graph_templates
 			ON (snmp_query_graph.graph_template_id = graph_templates.id)
-			WHERE (((snmp_query_graph.name) Is Null)) ORDER BY graph_templates.name");
+			WHERE (((snmp_query_graph.name) Is Null)) $sql_where ORDER BY graph_templates.name");
+        /* modify for multi user end */
 
 		$i = 0;
 		if (sizeof($selected_graph_templates) > 0) {
@@ -1052,7 +1197,7 @@ function host_edit() {
 						<?php form_dropdown("graph_template_id",$available_graph_templates,"name","id","","","");?>
 					</td>
 					<td align="right">
-						&nbsp;<input type="submit" value="Add" name="add_gt_x" title="Add Graph Template to Host">
+						&nbsp;<input type="submit" value="Add" name="add_gt_x" title="Add Graph Template to Host"<?php /* modify for multi user start */ if (!check_resource_count(RESOURCE_GRAPH) || !check_resource_count(RESOURCE_DATA)) print " disabled"; /* modify for multi user end */ ?>>
 					</td>
 				</table>
 			</td>
@@ -1074,11 +1219,18 @@ function host_edit() {
 			and host_snmp_query.host_id=" . $_GET["id"] . "
 			order by snmp_query.name");
 
+        /* modify for multi user start */
+        $sql_where = "";
+        if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+            $sql_where = "WHERE snmp_query.name NOT LIKE '%@system'";
+        }
 		$available_data_queries = db_fetch_assoc("select
 			snmp_query.id,
 			snmp_query.name
 			from snmp_query
+            $sql_where
 			order by snmp_query.name");
+        /* modify for multi user end */
 
 		$keeper = array();
 		foreach ($available_data_queries as $item) {
@@ -1138,7 +1290,7 @@ function host_edit() {
 						<?php form_dropdown("reindex_method",$reindex_types,"","",read_config_option("reindex_method"),"","");?>
 					</td>
 					<td align="right">
-						&nbsp;<input type="submit" value="Add" name="add_dq_x" title="Add Data Query to Host">
+						&nbsp;<input type="submit" value="Add" name="add_dq_x" title="Add Data Query to Host"<?php /* modify for multi user start */ if (!check_resource_count(RESOURCE_GRAPH) || !check_resource_count(RESOURCE_DATA)) print " disabled"; /* modify for multi user end */ ?>>
 					</td>
 				</table>
 			</td>
@@ -1233,8 +1385,13 @@ function host() {
 	</script>
 	<?php
 
+    /* modify for multi user start */
+    if (check_resource_count(RESOURCE_HOST) == TRUE) {
 	html_start_box("<strong>Devices</strong>", "100%", $colors["header"], "3", "center", "host.php?action=edit&host_template_id=" . htmlspecialchars(get_request_var_request("host_template_id")) . "&host_status=" . htmlspecialchars(get_request_var_request("host_status")));
-
+    } else {
+        html_start_box("<strong>Devices</strong>", "100%", $colors["header"], "3", "center", "");
+    }
+    /* modify for multi user end */
 	?>
 	<tr bgcolor="#<?php print $colors["panel"];?>">
 		<td>
@@ -1249,7 +1406,16 @@ function host() {
 							<option value="-1"<?php if (get_request_var_request("host_template_id") == "-1") {?> selected<?php }?>>Any</option>
 							<option value="0"<?php if (get_request_var_request("host_template_id") == "0") {?> selected<?php }?>>None</option>
 							<?php
+                            if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+                                $host_templates = db_fetch_assoc("
+                                    SELECT DISTINCT host_template.id,host_template.name FROM host_template
+                                      INNER JOIN host ON host_template.id = host.host_template_id
+                                      INNER JOIN user_auth_perms ON host.id = user_auth_perms.item_id AND user_auth_perms.user_id = '" . $_SESSION["sess_user_id"] ."' AND user_auth_perms.type = '3'
+                                    ORDER BY host_template.name");
+                            } else {
 							$host_templates = db_fetch_assoc("select id,name from host_template order by name");
+                            }
+                            /* modify for multi user end */
 
 							if (sizeof($host_templates) > 0) {
 								foreach ($host_templates as $host_template) {
@@ -1336,15 +1502,24 @@ function host() {
 		$sql_where .= (strlen($sql_where) ? " and host.host_template_id=" . get_request_var_request("host_template_id") : "where host.host_template_id=" . get_request_var_request("host_template_id"));
 	}
 
+    /* modify for multi user start */
+    $sql_join = "";
+    if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+        $sql_join = "INNER JOIN user_auth_perms ON host.id = user_auth_perms.item_id AND user_auth_perms.user_id = '" . $_SESSION["sess_user_id"] ."' AND user_auth_perms.type = '3'";
+    }
+    /* modify for multi user end */
 	/* print checkbox form for validation */
 	print "<form name='chk' method='post' action='host.php'>\n";
 
 	html_start_box("", "100%", $colors["header"], "3", "center", "");
 
+    /* modify for multi user start */
 	$total_rows = db_fetch_cell("select
 		COUNT(host.id)
 		from host
+        $sql_join
 		$sql_where");
+    /* modify for multi user end */
 
 	$sortby = get_request_var_request("sort_column");
 	if ($sortby=="hostname") {
@@ -1354,11 +1529,14 @@ function host() {
 	$host_graphs       = array_rekey(db_fetch_assoc("SELECT host_id, count(*) as graphs FROM graph_local GROUP BY host_id"), "host_id", "graphs");
 	$host_data_sources = array_rekey(db_fetch_assoc("SELECT host_id, count(*) as data_sources FROM data_local GROUP BY host_id"), "host_id", "data_sources");
 
-	$sql_query = "SELECT *
+    /* modify for multi user start */
+	$sql_query = "SELECT host.*
 		FROM host
+		$sql_join
 		$sql_where
 		ORDER BY " . $sortby . " " . get_request_var_request("sort_direction") . "
 		LIMIT " . (get_request_var_request("host_rows")*(get_request_var_request("page")-1)) . "," . get_request_var_request("host_rows");
+	/* modify for multi user end */
 
 	$hosts = db_fetch_assoc($sql_query);
 
@@ -1408,7 +1586,9 @@ function host() {
 			form_selectable_cell(round(($host["id"]), 2), $host["id"]);
 			form_selectable_cell((isset($host_graphs[$host["id"]]) ? $host_graphs[$host["id"]] : 0), $host["id"]);
 			form_selectable_cell((isset($host_data_sources[$host["id"]]) ? $host_data_sources[$host["id"]] : 0), $host["id"]);
-			form_selectable_cell(get_colored_device_status(($host["disabled"] == "on" ? true : false), $host["status"]), $host["id"]);
+            /* modify for multi user start */
+			form_selectable_cell(get_colored_device_status(($host["disabled"] == "on" || $host["disabled"] == "ps" ? $host["disabled"] : false), $host["status"]), $host["id"]);
+            /* modify for multi user end */
 			form_selectable_cell(get_timeinstate($host), $host["id"]);
 			form_selectable_cell((strlen(get_request_var_request("filter")) ? preg_replace("/(" . preg_quote(get_request_var_request("filter")) . ")/i", "<span style='background-color: #F8D93D;'>\\1</span>", htmlspecialchars($host["hostname"])) : htmlspecialchars($host["hostname"])), $host["id"]);
 			form_selectable_cell(round(($host["cur_time"]), 2), $host["id"]);

@@ -55,7 +55,7 @@ $page_title = api_plugin_hook_function('page_title', 'Cacti');
 <head>
 	<meta http-equiv="X-UA-Compatible" content="IE=edge">
 	<title><?php echo $page_title; ?></title>
-	<meta http-equiv=refresh content='30'>
+	<meta http-equiv=refresh content='300'>
 	<link type="text/css" href="<?php echo $config['url_path']; ?>include/main.css" rel="stylesheet">
 	<link href="<?php echo $config['url_path']; ?>images/favicon.ico" rel="shortcut icon">
 	<?php api_plugin_hook('page_head'); ?>

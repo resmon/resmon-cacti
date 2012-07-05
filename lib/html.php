@@ -708,6 +708,11 @@ function draw_menu($user_menu = "") {
 						$draw_sub_items = false;
 					}
 
+                    /* modify for multi user start */
+                    if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+                        $draw_sub_items = false;
+                    }
+                    /* modify for multi user end */
 					while (list($item_sub_url, $item_sub_title) = each($item_title)) {
 						$item_sub_url = $config['url_path'] . $item_sub_url;
 

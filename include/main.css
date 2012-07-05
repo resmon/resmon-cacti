@@ -2,7 +2,7 @@
 
 body, table, tr, td {
 	font-family: Verdana, Arial, Helvetica, sans-serif;
-	font-size: 10px;
+	font-size: 11px;
 }
 
 body {
@@ -70,7 +70,7 @@ a:hover {
 }
 
 .textSubHeaderDark, .textSubHeaderDark:visited {
-	font-size: 10px;
+	font-size: 11px;
 	color: #ffffff;
 	font-weight: bold;
 }
@@ -91,7 +91,7 @@ a:hover {
 }
 
 .textEditTitle {
-	font-size: 10px;
+	font-size: 11px;
 	font-weight: bold;
 }
 
@@ -99,26 +99,26 @@ a:hover {
 	color: #ffffff;
 	background-color: #9C9C9C;
 	font-family: Verdana, Arial, Helvetica, sans-serif;
-	font-size: 10px;
+	font-size: 11px;
 	font-weight: bold;
 }
 
 .textMenuItem {
 	background-color: #f5f5f5;
 	font-family: Verdana, Arial, Helvetica, sans-serif;
-	font-size: 10px;
+	font-size: 11px;
 }
 
 .textMenuSubItem {
 	background-color: #ffffff;
 	font-family: Verdana, Arial, Helvetica, sans-serif;
-	font-size: 10px;
+	font-size: 11px;
 }
 
 .textMenuItemSelected {
 	background-color: #E1E1E1;
 	font-family: Verdana, Arial, Helvetica, sans-serif;
-	font-size: 10px;
+	font-size: 11px;
 }
 
 .txtErrorTextBox {

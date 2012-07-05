@@ -137,11 +137,20 @@ function form_thold_filter() {
 							<option value='-1'<?php if ($_REQUEST["data_template_id"] == "-1") {?> selected<?php }?>>All</option>
 							<option value='0'<?php if ($_REQUEST["data_template_id"] == "0") {?> selected<?php }?>>None</option>
 							<?php
+                            /* modify for multi user start */
+                            if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+                                $data_templates = db_fetch_assoc("
+                                    SELECT DISTINCT data_template.id, data_template.name FROM data_template
+                                        INNER JOIN thold_data ON data_template.id = thold_data.data_template
+                                        INNER JOIN user_auth_perms ON thold_data.host_id = user_auth_perms.item_id AND user_auth_perms.user_id = '" . $_SESSION["sess_user_id"] ."' AND user_auth_perms.type = '3'");
+                            } else {
 							$data_templates = db_fetch_assoc("SELECT DISTINCT data_template.id, data_template.name " .
 								"FROM thold_data " .
 								"LEFT JOIN data_template ON thold_data.data_template=data_template.id " .
 								($_REQUEST["host_id"] > 0 ? "WHERE thold_data.host_id=" . $_REQUEST["host_id"]:"") .
 								" ORDER by data_template.name");
+                            }
+                            /* modify for multi user end */
 
 							if (sizeof($data_templates)) {
 								foreach ($data_templates as $data_template) {
@@ -159,13 +168,21 @@ function form_thold_filter() {
 							<option value='-1'<?php if ($_REQUEST["host_id"] == "-1") {?> selected<?php }?>>All</option>
 							<option value='0'<?php if ($_REQUEST["host_id"] == "0") {?> selected<?php }?>>None</option>
 							<?php
+                            /* modify for multi user start */
+                            if ($_SESSION["permission"] <= ACCESS_ADMINISTRATOR) {
+                                $ids = db_fetch_assoc("
+                                    SELECT DISTINCT host.id, host.description FROM host
+                                        INNER JOIN thold_data ON host.id = thold_data.host_id
+                                        INNER JOIN user_auth_perms ON host.id = user_auth_perms.item_id AND user_auth_perms.user_id = '" . $_SESSION["sess_user_id"] ."' AND user_auth_perms.type = '3'");
+                            } else {
 							$ids = db_fetch_assoc("SELECT DISTINCT host.id, host.description " .
 								"FROM host " .
 								"INNER JOIN thold_data ON host.id=thold_data.host_id " .
 								"LEFT JOIN data_template ON thold_data.data_template=data_template.id " .
 								($_REQUEST["data_template_id"] >= 0 ? "WHERE thold_data.data_template=" . $_REQUEST["data_template_id"]:"") .
 								" ORDER by data_template.name");
-
+                            }
+                            /* modify for multi user end */
 							if (sizeof($ids)) {
 								foreach ($ids as $id) {
 									print "<option value='" . $id["id"] . "'"; if ($_REQUEST["host_id"] == $id["id"]) { print " selected"; } print ">" . $id["description"] . "</option>\n";
@@ -353,6 +370,20 @@ function tholds() {
 		$sql_where .= (strlen($sql_where) ? " AND": "WHERE") . " thold_data.host_id=" . $_REQUEST['host_id'];
 	}
 
+    /* modify for multi user start */
+    if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+        $total_rows = db_fetch_cell("
+            SELECT COUNT(thold_data.id) FROM thold_data
+                INNER JOIN user_auth_perms ON thold_data.host_id = user_auth_perms.item_id AND user_auth_perms.user_id = '" . $_SESSION["sess_user_id"] ."' AND user_auth_perms.type = '3'
+            $sql_where");
+
+        $sql = "
+            SELECT thold_data.* FROM thold_data
+                INNER JOIN user_auth_perms ON thold_data.host_id = user_auth_perms.item_id AND user_auth_perms.user_id = '" . $_SESSION["sess_user_id"] ."' AND user_auth_perms.type = '3'
+            $sql_where
+            ORDER BY $sort " . $_REQUEST['sort_direction'] .
+            $limit;
+    } else {
 	/* thold permissions */
 	$current_user = db_fetch_row('SELECT * FROM user_auth WHERE id=' . $_SESSION['sess_user_id']);
 	$sql_where .= (strlen($sql_where) ? " AND ":"WHERE ") . get_graph_permissions_sql($current_user['policy_graphs'], $current_user['policy_hosts'], $current_user['policy_graph_templates']);
@@ -387,6 +418,8 @@ function tholds() {
 		$sql_where
 		ORDER BY $sort " . $_REQUEST['sort_direction'] .
 		$limit;
+    }
+    /* modify for multi user end */
 
 	$result = db_fetch_assoc($sql);
 
@@ -727,6 +760,20 @@ function hosts() {
 	$host_graphs       = array_rekey(db_fetch_assoc("SELECT host_id, count(*) as graphs FROM graph_local GROUP BY host_id"), "host_id", "graphs");
 	$host_data_sources = array_rekey(db_fetch_assoc("SELECT host_id, count(*) as data_sources FROM data_local GROUP BY host_id"), "host_id", "data_sources");
 
+    /* modify for multi user start */
+    if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+        $total_rows = db_fetch_cell("
+            SELECT COUNT(host.id) FROM host
+                INNER JOIN user_auth_perms ON host.id = user_auth_perms.item_id AND user_auth_perms.user_id = '" . $_SESSION["sess_user_id"] ."' AND user_auth_perms.type = '3'
+            $sql_where");
+        
+        $sql_query = "
+            SELECT host.* FROM host
+                INNER JOIN user_auth_perms ON host.id = user_auth_perms.item_id AND user_auth_perms.user_id = '" . $_SESSION["sess_user_id"] ."' AND user_auth_perms.type = '3'
+            $sql_where
+            ORDER BY " . $sortby . " " . $_REQUEST["sort_direction"] . "
+            LIMIT " . ($_REQUEST["rows"]*($_REQUEST["page"]-1)) . "," . $_REQUEST["rows"];
+    } else {
 	$current_user = db_fetch_row('SELECT * FROM user_auth WHERE id=' . $_SESSION['sess_user_id']);
 	$sql_where    .= ' AND ' . get_graph_permissions_sql($current_user['policy_graphs'], $current_user['policy_hosts'], $current_user['policy_graph_templates']);
 
@@ -748,7 +795,8 @@ function hosts() {
 		$sql_where
 		ORDER BY " . $sortby . " " . $_REQUEST["sort_direction"] . "
 		LIMIT " . ($_REQUEST["rows"]*($_REQUEST["page"]-1)) . "," . $_REQUEST["rows"];
-
+    }
+    /* modify for multi user end */
 	//print $sql_query;
 
 	$hosts = db_fetch_assoc($sql_query);
@@ -899,7 +947,13 @@ function form_host_filter() {
 							<option value='-1'<?php if ($_REQUEST["host_template_id"] == "-1") {?> selected<?php }?>>All</option>
 							<option value='0'<?php if ($_REQUEST["host_template_id"] == "0") {?> selected<?php }?>>None</option>
 							<?php
-							$host_templates = db_fetch_assoc("select id,name from host_template order by name");
+                            /* modify for multi user start */
+                            $sql_where = "";
+                            if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+                                $sql_where = "WHERE name NOT LIKE '%@system'";
+                            }
+							$host_templates = db_fetch_assoc("select id,name from host_template $sql_where order by name");
+                            /* modify for multi user end */
 
 							if (sizeof($host_templates)) {
 							foreach ($host_templates as $host_template) {
@@ -1085,6 +1139,9 @@ function thold_show_log() {
 	}elseif ($_REQUEST["host_id"] == "0") {
 		$sql_where .= (strlen($sql_where) ? " AND":"WHERE") . " host.id IS NULL";
 	}elseif (!empty($_REQUEST["host_id"])) {
+        /* modify for multi user start */
+        if (!check_host($_REQUEST["host_id"])) access_denied();
+        /* modify for multi user end */
 		$sql_where .= (strlen($sql_where) ? " AND":"WHERE") . " plugin_thold_log.host_id=" . $_REQUEST["host_id"];
 	}
 
@@ -1110,6 +1167,23 @@ function thold_show_log() {
 
 	$sortby = $_REQUEST["sort_column"];
 
+    /* modify for multi user start */
+    if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+        $total_rows = db_fetch_cell("
+            SELECT COUNT(plugin_thold_log.id) FROM plugin_thold_log 
+                INNER JOIN thold_data ON plugin_thold_log.threshold_id = thold_data.id 
+                INNER JOIN user_auth_perms ON thold_data.host_id = user_auth_perms.item_id AND user_auth_perms.user_id = '" . $_SESSION["sess_user_id"] ."' AND user_auth_perms.type = '3'
+            $sql_where");
+
+        $sql_query = "
+            SELECT plugin_thold_log.*, host.description AS hdescription, thold_data.name AS name FROM plugin_thold_log
+                INNER JOIN host ON plugin_thold_log.host_id = host.id
+                INNER JOIN thold_data ON plugin_thold_log.threshold_id = thold_data.id 
+                INNER JOIN user_auth_perms ON host.id = user_auth_perms.item_id AND user_auth_perms.user_id = '" . $_SESSION["sess_user_id"] ."' AND user_auth_perms.type = '3'
+            $sql_where
+            ORDER BY $sortby " . $_REQUEST['sort_direction'] .
+            $limit;
+    } else {
 	$current_user = db_fetch_row('SELECT * FROM user_auth WHERE id=' . $_SESSION['sess_user_id']);
 
 	$sql_where .= ' AND ' . get_graph_permissions_sql($current_user['policy_graphs'], $current_user['policy_hosts'], $current_user['policy_graph_templates']);
@@ -1138,7 +1212,8 @@ function thold_show_log() {
 		$sql_where
 		ORDER BY " . $sortby . " " . $_REQUEST["sort_direction"] . "
 		LIMIT " . ($_REQUEST["rows"]*($_REQUEST["page"]-1)) . "," . $_REQUEST["rows"];
-
+    }
+    /* modify for multi user end */
 	//print $sql_query;
 
 	$logs = db_fetch_assoc($sql_query);
@@ -1240,11 +1315,22 @@ function form_thold_log_filter() {
 							<option value='-1'<?php if ($_REQUEST["threshold_id"] == "-1") {?> selected<?php }?>>All</option>
 							<option value='0'<?php if ($_REQUEST["threshold_id"] == "0") {?> selected<?php }?>>None</option>
 							<?php
+                            /* modify for multi user start */
+                            if ($_SESSION["permission"] <= ACCESS_ADMINISTRATOR) {
+                                $tholds = db_fetch_assoc("
+                                    SELECT DISTINCT thold_data.id, thold_data.name FROM thold_data
+                                        INNER JOIN plugin_thold_log ON thold_data.id = plugin_thold_log.threshold_id 
+                                        INNER JOIN user_auth_perms ON thold_data.host_id = user_auth_perms.item_id AND user_auth_perms.user_id = '" . $_SESSION["sess_user_id"] ."' AND user_auth_perms.type = '3'" .
+                                    ($_REQUEST["host_id"] > 0 ? "WHERE thold_data.host_id = '" . $_REQUEST["host_id"] . "'" : "") .
+                                    " ORDER by thold_data.name");
+                            } else {
 							$tholds = db_fetch_assoc("SELECT DISTINCT thold_data.id, thold_data.name " .
 								"FROM thold_data " .
 								"INNER JOIN plugin_thold_log ON thold_data.id=plugin_thold_log.threshold_id " .
 								($_REQUEST["host_id"] > 0 ? "WHERE thold_data.host_id=" . $_REQUEST["host_id"]:"") .
 								" ORDER by thold_data.name");
+                            }
+                            /* modify for multi user end */
 
 							if (sizeof($tholds)) {
 								foreach ($tholds as $thold) {
@@ -1262,11 +1348,23 @@ function form_thold_log_filter() {
 							<option value='-1'<?php if ($_REQUEST["host_id"] == "-1") {?> selected<?php }?>>All</option>
 							<option value='0'<?php if ($_REQUEST["host_id"] == "0") {?> selected<?php }?>>None</option>
 							<?php
+                            /* modify for multi user start */
+                            if ($_SESSION["permission"] <= ACCESS_ADMINISTRATOR) {
+                                $ids = db_fetch_assoc("
+                                    SELECT DISTINCT host.id, host.description FROM thold_data
+                                        INNER JOIN host ON thold_data.host_id = host.id 
+                                        INNER JOIN plugin_thold_log ON host.id = plugin_thold_log.host_id
+                                        INNER JOIN user_auth_perms ON host.id = user_auth_perms.item_id AND user_auth_perms.user_id = '" . $_SESSION["sess_user_id"] ."' AND user_auth_perms.type = '3'" .
+                                    ($_REQUEST["threshold_id"] >= 0 ? " WHERE plugin_thold_log.threshold_id='" . $_REQUEST["threshold_id"] . "'" : "") .
+                                    " ORDER BY host.description");
+                            } else {
 							$ids = db_fetch_assoc("SELECT DISTINCT host.id, host.description " .
 								"FROM host " .
 								"INNER JOIN plugin_thold_log ON host.id=plugin_thold_log.host_id " .
 								($_REQUEST["threshold_id"] >= 0 ? "WHERE plugin_thold_log.threshold_id=" . $_REQUEST["threshold_id"]:"") .
 								" ORDER by host.description");
+                            }
+                            /* modify for multi user end */
 
 							if (sizeof($ids)) {
 								foreach ($ids as $id) {

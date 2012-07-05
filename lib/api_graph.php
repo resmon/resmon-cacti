@@ -38,6 +38,9 @@ function api_graph_remove_multi($local_graph_ids) {
 	$ids_to_delete = "";
 	$i = 0;
 
+    /* modify for multi user start */
+    $cache_directory = read_config_option("boost_png_cache_directory", TRUE);
+    /* modify for multi user end */
 	/* build the array */
 	if (sizeof($local_graph_ids)) {
 		foreach($local_graph_ids as $local_graph_id) {
@@ -58,6 +61,15 @@ function api_graph_remove_multi($local_graph_ids) {
 				$i = 0;
 				$ids_to_delete = "";
 			}
+            /* modify for multi user start */
+            // remove image caching
+            $files = glob($cache_directory . "/lgi_". $local_graph_id . "_rrai_*.png");
+            if (sizeof($files) > 0) {
+                array_walk($files,function (&$t) {
+                    unlink($t);
+                });
+            }
+            /* modify for multi user end */
 		}
 
 		if ($i > 0) {

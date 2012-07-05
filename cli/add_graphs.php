@@ -65,6 +65,9 @@ if (sizeof($parms)) {
 	$graphTemplates = getGraphTemplates();
 
 	$graphTitle = "";
+	/* modify for multi user start */
+    $dataTitle = "";
+    /* modify for multi user end */
 	$cgInputFields = "";
 
 	$hostId     	= 0;
@@ -98,6 +101,12 @@ if (sizeof($parms)) {
 			$templateId = $value;
 
 			break;
+         /* modify for multi user start */
+		case "--data-title":
+			$dataTitle = $value;
+
+			break;
+         /* modify for multi user end */
 		case "--host-template-id":
 			$hostTemplateId = $value;
 
@@ -443,6 +452,15 @@ if (sizeof($parms)) {
 			}else{
 				$dataSourceId = $item;
 			}
+            /* modify for multi user start */
+            if ($dataTitle != "") {
+                db_execute("UPDATE data_template_data
+                    SET name=\"$dataTitle\"
+                    WHERE local_data_id=" . $item);
+
+                update_data_source_title_cache($item);
+            }
+            /* modify for multi user end */
 		}
 
 		/* add this graph template to the list of associated graph templates for this host */
@@ -494,6 +512,15 @@ if (sizeof($parms)) {
 						WHERE graph_templates_item.local_graph_id = " . $existsAlready . "
 						AND graph_templates_item.task_item_id = data_template_rrd.id
 						LIMIT 1");
+                    /* modify for multi user start */
+                    if ($dataTitle != "") {
+                        db_execute("UPDATE data_template_data
+                            SET name=\"$dataTitle\"
+                            WHERE local_data_id=" . $dataSourceId);
+
+                        update_data_source_title_cache($dataSourceId);
+                    }
+                    /* modify for multi user end */
 
 					echo "NOTE: Not Adding Graph - this graph already exists - graph-id: ($existsAlready) - data-source-id: ($dataSourceId)\n";
 

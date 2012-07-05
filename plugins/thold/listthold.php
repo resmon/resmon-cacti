@@ -43,12 +43,25 @@ if (isset($_POST['drp_action'])) {
 }
 
 function do_thold() {
+    /* modify for multi user start */
+    if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+        $rows = db_fetch_assoc("
+            SELECT thold_data.id FROM thold_data
+                INNER JOIN user_auth_perms ON thold_data.host_id = user_auth_perms.item_id AND user_auth_perms.user_id = '" . $_SESSION["sess_user_id"] ."' AND user_auth_perms.type = '3'");
+        foreach ($rows as $row) {
+            $thold_data[] = $row["id"];
+        }
+    }
+    /* modify for multi user end */
 	global $hostid;
 
 	$tholds = array();
 	while (list($var,$val) = each($_POST)) {
 		if (ereg("^chk_(.*)$", $var, $matches)) {
 			$del = $matches[1];
+            /* modify for multi user start */
+            if (!in_array($del, $thold_data)) access_denied();
+            /* modify for multi user end */
 			$rra = db_fetch_cell("SELECT rra_id FROM thold_data WHERE id=$del");
 
 			input_validate_input_number($del);
@@ -218,6 +231,15 @@ function list_tholds() {
 		$sql_where .= (!strlen($sql_where) ? 'WHERE ' : ' AND ') . "$statefilter";
 	}
 
+    /* modify for multi user start */
+    if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+        $sql = "
+            SELECT thold_data.* FROM thold_data
+                INNER JOIN user_auth_perms ON thold_data.host_id = user_auth_perms.item_id AND user_auth_perms.user_id = '" . $_SESSION["sess_user_id"] ."' AND user_auth_perms.type = '3'
+            $sql_where
+            ORDER BY $sort " . $_REQUEST['sort_direction'] .
+            $limit;
+    } else {
 	$current_user = db_fetch_row('SELECT * FROM user_auth WHERE id=' . $_SESSION['sess_user_id']);
 	$sql_where .= (!strlen($sql_where) ? 'WHERE ' : ' AND ') . get_graph_permissions_sql($current_user['policy_graphs'], $current_user['policy_hosts'], $current_user['policy_graph_templates']);
 
@@ -226,8 +248,23 @@ function list_tholds() {
 		$sql_where
 		ORDER BY $sort " . $_REQUEST['sort_direction'] .
 		$limit;
+    }
+    /* modify for multi user end */
 	$result = db_fetch_assoc($sql);
 
+    /* modify for multi user start */
+    if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+        $hostresult = db_fetch_assoc("
+            SELECT host.id, host.description, host.hostname FROM host 
+                INNER JOIN thold_data ON host.id = thold_data.host_id 
+                INNER JOIN user_auth_perms ON host.id = user_auth_perms.item_id AND user_auth_perms.user_id = '" . $_SESSION["sess_user_id"] ."' AND user_auth_perms.type = '3'");
+        $data_templates = db_fetch_assoc("
+            SELECT DISTINCT data_template.id, data_template.name FROM data_template
+                INNER JOIN thold_data ON thold_data.data_template = data_template.id
+                INNER JOIN host ON thold_data.host_id = host.id
+                INNER JOIN user_auth_perms ON host.id = user_auth_perms.item_id AND user_auth_perms.user_id = '" . $_SESSION["sess_user_id"] ."' AND user_auth_perms.type = '3'
+            ORDER BY data_template.name");
+    } else {
 	$sql_where_hid    = 'WHERE ' . get_graph_permissions_sql($current_user['policy_graphs'], $current_user['policy_hosts'], $current_user['policy_graph_templates']);
 	$hostresult = db_fetch_assoc("SELECT DISTINCT host.id, host.description, host.hostname
 		FROM host
@@ -240,7 +277,8 @@ function list_tholds() {
 		FROM data_template
 		INNER JOIN thold_data ON (thold_data.data_template = data_template.id)
 		ORDER BY data_template.name");
-
+    }
+    /* modify for multi user end */
 	?>
 	<script type="text/javascript">
 	<!--
@@ -254,7 +292,13 @@ function list_tholds() {
 	</script>
 	<?php
 
+    /* modify for multi user start */
+    if (check_resource_count(RESOURCE_THOLD) == TRUE) {
 	html_start_box('<strong>Threshold Management</strong>' , '100%', $colors['header'], '3', 'center', 'thold_add.php');
+    } else {
+        html_start_box('<strong>Threshold Management</strong>' , '100%', $colors['header'], '3', 'center', '');
+    }
+    /* modify for multi user end */
 	?>
 	<tr bgcolor='#<?php print $colors["panel"];?>' class='noprint'>
 		<td class='noprint'>
@@ -314,6 +358,13 @@ function list_tholds() {
 
 	define('MAX_DISPLAY_PAGES', 21);
 
+    /* modify for multi user start */
+    if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+        $total_rows = db_fetch_cell("
+            SELECT COUNT(thold_data.id) FROM thold_data
+                INNER JOIN user_auth_perms ON thold_data.host_id = user_auth_perms.item_id AND user_auth_perms.user_id = '" . $_SESSION["sess_user_id"] ."' AND user_auth_perms.type = '3'
+            $sql_where");
+    } else {
 	$total_rows = count(db_fetch_assoc("SELECT thold_data.id
 		FROM thold_data
 		LEFT JOIN user_auth_perms
@@ -327,6 +378,8 @@ function list_tholds() {
 		AND user_auth_perms.type=4
 		AND user_auth_perms.user_id=" . $_SESSION['sess_user_id'] . "))
 		$sql_where"));
+    }
+    /* modify for multi user end */
 
 	$url_page_select = get_page_list($_REQUEST['page'], MAX_DISPLAY_PAGES, $alert_num_rows, $total_rows, 'listthold.php?');
 

@@ -119,6 +119,19 @@ function thold_config_form () {
 			);
 		}
 	}
+    /* modify for multi user start */
+    define("ACCESS_ADMINISTRATOR", 100);
+    define("ACCESS_PREMIUM_USER", 10);
+    define("ACCESS_NORMAL_USER", 1);
+    if (isset($_SESSION["permission"]) && $_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+        unset($fields_host_edit3['thold_send_email']['array'][1]);
+        unset($fields_host_edit3['thold_send_email']['array'][3]);
+        $fields_host_edit3['thold_host_email']['sql'] = "
+                SELECT plugin_notification_lists.id,plugin_notification_lists.name FROM plugin_notification_lists 
+                    INNER JOIN user_auth ON (plugin_notification_lists.name = CONCAT(user_auth.username,'_alert') OR plugin_notification_lists.name = CONCAT(user_auth.username,'_warning')) AND user_auth.id = '" . $_SESSION["sess_user_id"] . "'";
+        $fields_host_edit3['thold_host_email']['none_value'] = "";
+    }
+    /* modify for multi user end */
 	$fields_host_edit = $fields_host_edit3;
 }
 

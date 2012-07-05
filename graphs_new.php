@@ -57,6 +57,11 @@ switch ($_REQUEST["action"]) {
    -------------------------- */
 
 function form_save() {
+    /* modify for multi user start */
+    if (!check_host($_POST["host_id"])) access_denied();
+    if (!check_resource_count(RESOURCE_GRAPH)) access_denied();
+    /* modify for multi user end */
+
 	if (isset($_POST["save_component_graph"])) {
 		/* summarize the 'create graph from host template/snmp index' stuff into an array */
 		while (list($var, $val) = each($_POST)) {
@@ -368,6 +373,18 @@ function graphs() {
 	input_validate_input_number(get_request_var_request("graph_type"));
 	/* ==================================================== */
 
+    /* modify for multi user start */
+    if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+        if($_REQUEST["host_id"] == "") {
+            $_REQUEST["host_id"] = db_fetch_cell("
+                SELECT host.id FROM host
+                    INNER JOIN user_auth_perms ON host.id = user_auth_perms.item_id AND user_auth_perms.user_id = '" . $_SESSION["sess_user_id"] ."' AND user_auth_perms.type = '3'
+                ORDER BY host.id LIMIT 1");
+        }
+    }
+    if (!check_host($_REQUEST["host_id"])) access_denied();
+    /* modify for multi user end */
+
 	/* clean up search string */
 	if (isset($_REQUEST["filter"])) {
 		$_REQUEST["filter"] = sanitize_search_string(get_request_var("filter"));
@@ -473,7 +490,16 @@ function graphs() {
 			<td width="1">
 				<select name="host_id" onChange="applyGraphsNewFilterChange(document.form_graphs_new)">
 				<?php
+                /* modify for multi user start */
+                if ($_SESSION["permission"] <= ACCESS_ADMINISTRATOR) {
+                    $hosts = db_fetch_assoc("
+                        SELECT host.id,CONCAT_WS('',host.description,' (',host.hostname,')') as name FROM host 
+                            INNER JOIN user_auth_perms ON host.id = user_auth_perms.item_id AND user_auth_perms.user_id = '" . $_SESSION["sess_user_id"] ."' AND user_auth_perms.type = '3'
+                        ORDER BY host.description,host.hostname");
+                } else {
 				$hosts = db_fetch_assoc("select id,CONCAT_WS('',description,' (',hostname,')') as name from host order by description,hostname");
+                }
+                /* modify for multi user end */
 
 				if (sizeof($hosts) > 0) {
 					foreach ($hosts as $item) {
@@ -509,10 +535,16 @@ function graphs() {
 				?>
 				</select>
 			</td>
-			<td nowrap style='white-space: nowrap;' class="textInfo" align="center" valign="top">
+			<td nowrap style='white-space: nowrap;' class="textInfo" align="left" valign="top">
 				<span style="white-space: nowrap; color: #c16921;">*</span><a href="<?php print htmlspecialchars("host.php?action=edit&id=" . $_REQUEST["host_id"]);?>">Edit this Host</a><br>
+                <?php /* modify for multi user start */ if (check_resource_count(RESOURCE_HOST) == TRUE) { ?>
 				<span style="white-space: nowrap; color: #c16921;">*</span><a href="<?php print htmlspecialchars("host.php?action=edit");?>">Create New Host</a><br>
-				<?php api_plugin_hook('graphs_new_top_links'); ?>
+				<?php }
+                if ($_SESSION["permission"] == ACCESS_ADMINISTRATOR) {
+                    api_plugin_hook('graphs_new_top_links');
+                }
+                /* modify for multi user end */
+                ?>
 			</td>
 		</tr>
 	</table>
@@ -616,11 +648,17 @@ function graphs() {
 
 		$script .= "gt_update_deps(1);\n";
 
+        /* modify for multi user start */
+        $sql_where = "";
+        if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+            $sql_where = "AND graph_templates.name NOT LIKE '%@system'";
+        }
 		$available_graph_templates = db_fetch_assoc("SELECT
 			graph_templates.id, graph_templates.name
 			FROM snmp_query_graph RIGHT JOIN graph_templates
 			ON (snmp_query_graph.graph_template_id = graph_templates.id)
-			WHERE (((snmp_query_graph.name) Is Null)) ORDER BY graph_templates.name");
+			WHERE (((snmp_query_graph.name) Is Null)) $sql_where ORDER BY graph_templates.name");
+        /* modify for multi user end */
 
 		/* create a row at the bottom that lets the user create any graph they choose */
 		print "	<tr bgcolor='#" . (($i % 2 == 0) ? "ffffff" : $colors["light"]) . "'>
@@ -946,7 +984,11 @@ function graphs() {
 	}
 	load_current_session_value("returnto", "sess_graphs_new_returnto", "");
 
+    /* modify for multi user start */
+    if (check_resource_count(RESOURCE_GRAPH) && check_resource_count(RESOURCE_DATA)) {
 	form_save_button($_REQUEST["returnto"]);
+    }
+    /* modify for multi user end */
 
 	print "<script type='text/javascript'>dq_update_selection_indicators();</script>\n";
 	print "<script type='text/javascript'>gt_update_selection_indicators();</script>\n";

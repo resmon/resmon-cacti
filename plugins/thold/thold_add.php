@@ -26,10 +26,16 @@
 chdir('../../');
 include_once('./include/auth.php');
 
+/* modify for multi user start */
+if (!check_resource_count(RESOURCE_THOLD)) access_denied();
+/* modify for multi user end */
 $host = $graph = $ds = $dt = '';
 
 if (isset($_REQUEST['hostid']) && $_REQUEST['hostid'] != '') {
 	input_validate_input_number($_REQUEST['hostid']);
+    /* modify for multi user start */
+    if (!check_host($_REQUEST['hostid'])) access_denied();
+    /* modify for multi user end */
 	$host = $_REQUEST['hostid'];
 } else {
 	$host = 0;
@@ -41,6 +47,9 @@ if (isset($_SERVER["HTTP_REFERER"]) && (substr_count($_SERVER["HTTP_REFERER"], "
 
 if (isset($_REQUEST['graphid']) && $_REQUEST['graphid'] != '') {
 	input_validate_input_number($_REQUEST['graphid']);
+    /* modify for multi user start */
+    if (!check_graph($_REQUEST['graphid'])) access_denied();
+    /* modify for multi user end */
 	$graph = $_REQUEST['graphid'];
 	if ($host == 0) {
 		$host = db_fetch_cell('SELECT host_id FROM graph_local WHERE id = ' . $graph);
@@ -51,6 +60,9 @@ if (isset($_REQUEST['graphid']) && $_REQUEST['graphid'] != '') {
 
 if (isset($_REQUEST['doaction']) && $_REQUEST['doaction'] != '') {
 	input_validate_input_number($_REQUEST['graphid']);
+    /* modify for multi user start */
+    if (!check_graph($_REQUEST['graphid'])) access_denied();
+    /* modify for multi user end */
 	$graph = $_REQUEST['graphid'];
 	if ($_REQUEST['doaction'] == 1) {
 		header("Location:" . $config['url_path'] . "plugins/thold/thold_add.php?graphid=$graph\n\n");
@@ -70,6 +82,10 @@ if (isset($_REQUEST['doaction']) && $_REQUEST['doaction'] != '') {
 
 if (isset($_REQUEST['dsid']) && $_REQUEST['dsid'] != '') {
 	input_validate_input_number($_REQUEST['dsid']);
+    /* modify for multi user start */
+    $local_data_id =db_fetch_cell("SELECT data_template_rrd.local_data_id FROM data_template_rrd WHERE data_template_rrd.id = '" . $_REQUEST['dsid'] . "'");
+    if (!check_data($local_data_id)) access_denied();
+    /* modify for multi user end */
 	$ds = $_REQUEST['dsid'];
 }
 
@@ -79,6 +95,9 @@ if (isset($_REQUEST['dt']) && $_REQUEST['dt'] != '') {
 		$dt = db_fetch_cell("SELECT local_data_id FROM data_template_rrd WHERE id = $ds");
 	} else {
 		input_validate_input_number($_REQUEST['dt']);
+        /* modify for multi user start */
+        if (!check_data($_REQUEST['dt'])) access_denied();
+        /* modify for multi user end */
 		$dt = $_REQUEST['dt'];
 	}
 }
@@ -386,6 +405,12 @@ function thold_add_graphs_action_prepare($graph) {
 				'value' => $graph
 			)
 		);
+        
+        /* modify for multi user start */
+        if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+            unset($form_array["doaction"]["array"][2]);
+        }
+        /* modify for multi user start */
 
 		draw_edit_form(
 			array(
@@ -427,6 +452,11 @@ function thold_add_graphs_action_array($action) {
 function thold_add_select_host() {
 	global $config, $host, $graph, $ds;
 
+    /* modify for multi user start */
+    if ($_SESSION["permission"] <= ACCESS_ADMINISTRATOR) {
+        $hosts = db_fetch_assoc("SELECT host.id, CONCAT_WS('',host.description,' (',host.hostname,')') AS name FROM host
+            INNER JOIN user_auth_perms ON host.id = user_auth_perms.item_id AND user_auth_perms.user_id = '" . $_SESSION["sess_user_id"] ."' AND user_auth_perms.type = '3'");
+    } else {
 	/* get policy information for the sql where clause */
 	$current_user = db_fetch_row("SELECT * FROM user_auth WHERE id=" . $_SESSION["sess_user_id"]);
 	$sql_where    = get_graph_permissions_sql($current_user["policy_graphs"], $current_user["policy_hosts"], $current_user["policy_graph_templates"]);
@@ -439,6 +469,8 @@ function thold_add_select_host() {
 		WHERE graph_templates_graph.local_graph_id=graph_local.id
 		" . (empty($sql_where) ? "" : "AND $sql_where") . "
 		ORDER BY name");
+    }
+    /* modify for multi user end */
 
 	include($config['include_path'] . '/top_header.php');
 
@@ -474,6 +506,15 @@ function thold_add_select_host() {
 		</tr><?php
 
 	if ($host != '') {
+        /* modify for multi user start */
+        if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+            $graphs = db_fetch_assoc("
+                SELECT graph_templates_graph.id,graph_templates_graph.local_graph_id,graph_templates_graph.title_cache FROM graph_templates_graph 
+                    INNER JOIN graph_local ON graph_templates_graph.local_graph_id = graph_local.id 
+                    INNER JOIN host ON graph_local.host_id = host.id AND host.id = '$host' 
+                    INNER JOIN user_auth_perms ON host.id = user_auth_perms.item_id AND user_auth_perms.user_id = '" . $_SESSION["sess_user_id"] ."' AND user_auth_perms.type = '3'
+                ORDER BY graph_templates_graph.title_cache");
+        } else {
 		$graphs = db_fetch_assoc("SELECT
 					graph_templates_graph.id,
 					graph_templates_graph.local_graph_id,
@@ -487,6 +528,8 @@ function thold_add_select_host() {
 					" . (empty($sql_where) ? "" : "AND $sql_where") . "
 					AND host.id = $host
 					ORDER BY title_cache");
+        }
+        /* modify for multi user end */
 
 		/* display the graphs dropdown */
 		?>

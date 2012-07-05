@@ -51,12 +51,22 @@ $thold_bgcolors = array(
 //print "<pre>";print_r($_POST);print "</pre>";exit;
 
 /* present a tabbed interface */
+/* modify for multi user start */
+if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+    $tabs_thold = array(
+        "general" => "General",
+        "hosts" => "Hosts",
+        "tholds" => "Thresholds"
+    );
+} else {
 $tabs_thold = array(
     "general" => "General",
     "hosts" => "Hosts",
     "tholds" => "Thresholds",
     "templates" => "Templates"
 );
+}
+/* modify for multi user end */
 
 /* set default action */
 if (!isset($_REQUEST["action"])) { $_REQUEST["action"] = ""; }
@@ -87,6 +97,12 @@ switch ($_REQUEST["action"]) {
    -------------------------- */
 
 function form_save() {
+    /* modify for multi user start */
+    /* ================= input validation ================= */
+    input_validate_input_number(get_request_var_post("id"));
+    /* ==================================================== */
+    if (!check_notification($_REQUEST['id'])) access_denied();
+    /* modify for multi user end */
 	if (isset($_POST["save_component"])) {
 		$save["id"] = $_POST["id"];
 		$save["name"] = form_input_validate($_POST["name"], "name", "", false, 3);
@@ -112,6 +128,9 @@ function form_save() {
    ------------------------ */
 
 function form_actions() {
+    /* modify for multi user start */
+    if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) access_denied();
+    /* modify for multi user end */
 	global $colors, $actions, $assoc_actions;
 
 	/* if we are to save this form, instead of display it */
@@ -545,7 +564,9 @@ function edit() {
 	/* ================= input validation ================= */
 	input_validate_input_number(get_request_var_request("id"));
 	/* ==================================================== */
-
+    /* modify for multi user start */
+    if (!check_notification($_REQUEST['id'])) access_denied();
+    /* modify for multi user end */
 	/* set the default tab */
 	load_current_session_value("tab", "sess_thold_notify_tab", "general");
 	$current_tab = $_REQUEST["tab"];
@@ -617,6 +638,11 @@ function edit() {
 				"value" => "1"
 			)
 		);
+        /* modify for multi user start */
+        if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+            $fields_notification["name"]["method"] = "";
+        }
+        /* modify for multi user end */
 	
 		draw_edit_form(array(
 			"config" => array(),
@@ -719,7 +745,9 @@ function hosts($header_label) {
 							<option value="-1"<?php if (get_request_var_request("host_template_id") == "-1") {?> selected<?php }?>>Any</option>
 							<option value="0"<?php if (get_request_var_request("host_template_id") == "0") {?> selected<?php }?>>None</option>
 							<?php
-							$host_templates = db_fetch_assoc("select id,name from host_template order by name");
+                            /* modify for multi user start */
+							$host_templates = db_fetch_assoc("select id,name from host_template WHERE name NOT LIKE '%@system' order by name");
+                            /* modify for multi user end */
 
 							if (sizeof($host_templates) > 0) {
 								foreach ($host_templates as $host_template) {
@@ -878,7 +906,9 @@ function hosts($header_label) {
 			}
 			form_selectable_cell((isset($host_graphs[$host["id"]]) ? $host_graphs[$host["id"]] : 0), $host["id"]);
 			form_selectable_cell((isset($host_data_sources[$host["id"]]) ? $host_data_sources[$host["id"]] : 0), $host["id"]);
-			form_selectable_cell(get_colored_device_status(($host["disabled"] == "on" ? true : false), $host["status"]), $host["id"]);
+            /* modify for multi user start */
+			form_selectable_cell(get_colored_device_status(($host["disabled"] == "on" || $host["disabled"] == "ps" ? $host["disabled"] : false), $host["status"]), $host["id"]);
+            /* modify for multi user end */
 			form_selectable_cell((strlen(get_request_var_request("filter")) ? preg_replace("/(" . preg_quote(get_request_var_request("filter")) . ")/i", "<span style='background-color: #F8D93D;'>\\1</span>", htmlspecialchars($host["hostname"])) : htmlspecialchars($host["hostname"])), $host["id"]);
 			form_checkbox_cell($host["description"], $host["id"]);
 			form_end_row();
@@ -895,8 +925,12 @@ function hosts($header_label) {
 	form_hidden_box("id", get_request_var_request("id"), "");
 	form_hidden_box("save_associate", "1", "");
 
+    /* modify for multi user start */
+    if ($_SESSION["permission"] == ACCESS_ADMINISTRATOR) {
 	/* draw the dropdown containing a list of available actions for this form */
 	draw_actions_dropdown($assoc_actions);
+    }
+    /* modify for multi user end */
 
 	print "</form>\n";
 }
@@ -1237,7 +1271,11 @@ function tholds($header_label) {
 	form_hidden_box("id", get_request_var_request("id"), "");
 	form_hidden_box("save_tholds", "1", "");
 
+    /* modify for multi user start */
+    if ($_SESSION["permission"] == ACCESS_ADMINISTRATOR) {
 	draw_actions_dropdown($thold_actions);
+    }
+    /* modify for multi user end */
 
 	print "</form>\n";
 }
@@ -1480,7 +1518,11 @@ function templates($header_label) {
 	form_hidden_box("id", get_request_var_request("id"), "");
 	form_hidden_box("save_templates", "1", "");
 
+    /* modify for multi user start */
+    if ($_SESSION["permission"] == ACCESS_ADMINISTRATOR) {
 	draw_actions_dropdown($thold_actions);
+    }
+    /* modify for multi user end */
 
 	print "</form>\n";
 }
@@ -1874,7 +1916,9 @@ function tholds_old() {
 			}
 			form_selectable_cell((isset($host_graphs[$host["id"]]) ? $host_graphs[$host["id"]] : 0), $host["id"]);
 			form_selectable_cell((isset($host_data_sources[$host["id"]]) ? $host_data_sources[$host["id"]] : 0), $host["id"]);
-			form_selectable_cell(get_colored_device_status(($host["disabled"] == "on" ? true : false), $host["status"]), $host["id"]);
+            /* modify for multi user start */
+			form_selectable_cell(get_colored_device_status(($host["disabled"] == "on" || $host["disabled"] == "ps" ? $host["disabled"] : false), $host["status"]), $host["id"]);
+            /* modify for multi user end */
 			form_selectable_cell((strlen(get_request_var_request("filter")) ? preg_replace("/(" . preg_quote(get_request_var_request("filter")) . ")/i", "<span style='background-color: #F8D93D;'>\\1</span>", htmlspecialchars($host["hostname"])) : htmlspecialchars($host["hostname"])), $host["id"]);
 			form_checkbox_cell($host["description"], $host["id"]);
 			form_end_row();
@@ -1891,9 +1935,12 @@ function tholds_old() {
 	form_hidden_box("id", get_request_var_request("id"));
 	form_hidden_box("save_associate", "1");
 
+    /* modify for multi user start */
+    if ($_SESSION["permission"] == ACCESS_ADMINISTRATOR) {
 	/* draw the dropdown containing a list of available actions for this form */
 	draw_actions_dropdown($assoc_actions);
-
+    }
+    /* modify for multi user end */
 	print "</form>\n";
 }
 
@@ -1939,6 +1986,10 @@ function lists() {
 	load_current_session_value("sort_column", "sess_lists_sort_column", "name");
 	load_current_session_value("sort_direction", "sess_lists_sort_direction", "ASC");
 
+    /* modify for multi user start */
+    if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+        html_start_box("<strong>Notification Lists</strong>", "100%", $colors["header"], "3", "center", "");
+    } else {
 	html_start_box("<strong>Notification Lists</strong>", "100%", $colors["header"], "3", "center", "notify_lists.php?action=edit");
 
 	?>
@@ -1964,7 +2015,8 @@ function lists() {
 		</td>
 	</tr>
 	<?php
-
+    }
+    /* modify for multi user end */
 	html_end_box();
 
 	/* form the 'where' clause for our main sql query */
@@ -1981,17 +2033,24 @@ function lists() {
 
 	html_start_box("", "100%", $colors["header"], "3", "center", "");
 
+    /* modify for multi user start */
+    $sql_join = "";
+    if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+        $sql_join = "INNER JOIN user_auth ON (plugin_notification_lists.name = CONCAT(user_auth.username,'_alert') OR plugin_notification_lists.name = CONCAT(user_auth.username,'_warning')) AND user_auth.id = '" . $_SESSION["sess_user_id"] . "'";
+    }
 	$total_rows = db_fetch_cell("SELECT
 		COUNT(*)
 		FROM plugin_notification_lists
+        $sql_join
 		$sql_where");
 
-	$lists = db_fetch_assoc("SELECT id, name, description, emails
+	$lists = db_fetch_assoc("SELECT plugin_notification_lists.id, plugin_notification_lists.name, plugin_notification_lists.description, plugin_notification_lists.emails
 		FROM plugin_notification_lists
+        $sql_join
 		$sql_where
 		ORDER BY " . get_request_var_request("sort_column") . " " . get_request_var_request("sort_direction") .
 		" LIMIT " . (read_config_option("num_rows_device")*(get_request_var_request("page")-1)) . "," . read_config_option("num_rows_device"));
-
+    /* modify for multi user end */
 	if ($total_rows > 0) {
 		/* generate page list */
 		$url_page_select = get_page_list(get_request_var_request("page"), MAX_DISPLAY_PAGES, read_config_option("num_rows_device"), $total_rows, "notify_lists.php?filter=" . get_request_var_request("filter"));
@@ -2054,9 +2113,12 @@ function lists() {
 
 	form_hidden_box('save_list', '1', '');
 
+    /* modify for multi user start */
+    if ($_SESSION["permission"] == ACCESS_ADMINISTRATOR) {
 	/* draw the dropdown containing a list of available actions for this form */
 	draw_actions_dropdown($actions);
-
+    }
+    /* modify for multi user end */
 	print "</form>\n";
 }
 

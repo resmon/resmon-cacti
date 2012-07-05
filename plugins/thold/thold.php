@@ -29,13 +29,16 @@ include_once('./include/auth.php');
 include_once($config['library_path'] . '/rrd.php');
 include_once($config['base_path'] . '/plugins/thold/thold_functions.php');
 
-input_validate_input_number(get_request_var('view_rra'));
+input_validate_input_number(get_request_var('view_rrd'));   /* modify for multi user */
 input_validate_input_number(get_request_var('hostid'));
 input_validate_input_number(get_request_var('rra'));
 input_validate_input_number(get_request_var('id'));
 
 $hostid = '';
 if (isset($_REQUEST['rra'])) {
+    /* modify for multi user start */
+    if (!check_data($_REQUEST['rra'])) access_denied();
+    /* modify for multi user end */
 	$rra = $_REQUEST['rra'];
 	$hostid = db_fetch_assoc('select host_id from thold_data where rra_id=' . $rra);
 	if (isset($hostid[0]['host_id'])) {
@@ -59,6 +62,9 @@ if (isset($_REQUEST['rra'])) {
 	$_REQUEST['rra'] = '';
 	$rra = '';
 	if (isset($_REQUEST['hostid'])) {
+        /* modify for multi user start */
+        if (!check_host($_REQUEST['hostid'])) access_denied();
+        /* modify for multi user end */
 		$hostid = $_REQUEST['hostid'];
 	} else {
 		$_REQUEST['hostid'] = '';
@@ -71,6 +77,11 @@ if (isset($_REQUEST['rra'])) {
 	}
 }
 
+/* modify for multi user start */
+if (isset($_REQUEST['id'])) {
+    if (!check_thold($_REQUEST['id'])) access_denied();
+}
+/* modify for multi user start */
 if (!isset($_REQUEST['action'])) {
 	$_REQUEST['action'] = '';
 }
@@ -682,6 +693,15 @@ $form_array = array(
 		)
 	);
 
+    /* modify for multi user start */
+    if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+        $form_array["notify_warning"]["sql"] = "SELECT plugin_notification_lists.id, plugin_notification_lists.name FROM plugin_notification_lists 
+                INNER JOIN user_auth ON plugin_notification_lists.name = CONCAT(user_auth.username,'_warning') AND user_auth.id = '" . $_SESSION["sess_user_id"] . "'";
+        $form_array["notify_alert"]["sql"] = "SELECT plugin_notification_lists.id, plugin_notification_lists.name FROM plugin_notification_lists 
+                INNER JOIN user_auth ON plugin_notification_lists.name = CONCAT(user_auth.username,'_alert') AND user_auth.id = '" . $_SESSION["sess_user_id"] . "'";
+    }
+    /* modify for multi user end */
+    
 	if (read_config_option("thold_disable_legacy") != 'on') {
 		$extra = array(
 			'notify_accounts' => array(
@@ -752,7 +772,11 @@ draw_edit_form(
 );
 
 html_end_box();
+/* modify for multi user start */
+if (check_resource_count(RESOURCE_THOLD) == TRUE || db_fetch_cell("SELECT thold_data.data_id FROM thold_data WHERE thold_data.data_id = '" . $_GET['view_rrd'] . "'")) {
 form_save_button('thold.php?rra=' . $rra . '&view_rrd=' . $_GET['view_rrd'], 'save');
+}
+/* modify for multi user end */
 
 unset($template_data_rrds);
 ?>

@@ -86,7 +86,8 @@ function db_execute($sql, $log = TRUE, $db_conn = FALSE) {
 	if (!$db_conn) {
 		$db_conn = $cnn_id;
 	}
-	$sql = str_replace("\n", "", str_replace("\r", "", str_replace("\t", " ", $sql)));
+	//$sql = str_replace("\n", "", str_replace("\r", "", str_replace("\t", " ", $sql)));
+    $sql = strtr($sql, array("\t"=>" ", "\r"=>"","\n"=>"")); /* modify for multi user */
 
 	if (read_config_option("log_verbosity") == POLLER_VERBOSITY_DEVDBG) {
 		cacti_log("DEVEL: SQL Exec: \"" . $sql . "\"", FALSE);
@@ -105,14 +106,16 @@ function db_execute($sql, $log = TRUE, $db_conn = FALSE) {
 			if ((substr_count($db_conn->ErrorMsg(), "Deadlock")) || ($db_conn->ErrorNo() == 1213) || ($db_conn->ErrorNo() == 1205)) {
 				$errors++;
 				if ($errors > 30) {
-					cacti_log("ERROR: Too many Lock/Deadlock errors occurred! SQL:'" . str_replace("\n", "", str_replace("\r", "", str_replace("\t", " ", $sql))) ."'", TRUE);
+					//cacti_log("ERROR: Too many Lock/Deadlock errors occurred! SQL:'" . str_replace("\n", "", str_replace("\r", "", str_replace("\t", " ", $sql))) ."'", TRUE);
+					cacti_log("ERROR: Too many Lock/Deadlock errors occurred! SQL:'" . strtr($sql, array("\t"=>" ", "\r"=>"","\n"=>"")) ."'", TRUE); /* modify for multi user */
 					return(0);
 				}else{
 					usleep(500000);
 					continue;
 				}
 			}else{
-				cacti_log("ERROR: A DB Exec Failed!, Error:'" . $db_conn->ErrorNo() . "', SQL:\"" . str_replace("\n", "", str_replace("\r", "", str_replace("\t", " ", $sql))) . "'", FALSE);
+				//cacti_log("ERROR: A DB Exec Failed!, Error:'" . $db_conn->ErrorNo() . "', SQL:\"" . str_replace("\n", "", str_replace("\r", "", str_replace("\t", " ", $sql))) . "'", FALSE);
+				cacti_log("ERROR: A DB Exec Failed!, Error:'" . $db_conn->ErrorNo() . "', SQL:\"" . strtr($sql, array("\t"=>" ", "\r"=>"","\n"=>"")) . "'", FALSE); /* modify for multi user */
 				return(0);
 			}
 		}
@@ -133,7 +136,8 @@ function db_fetch_cell($sql, $col_name = '', $log = TRUE, $db_conn = FALSE) {
 		$db_conn = $cnn_id;
 	}
 
-	$sql = str_replace("\n", "", str_replace("\r", "", str_replace("\t", " ", $sql)));
+	//$sql = str_replace("\n", "", str_replace("\r", "", str_replace("\t", " ", $sql)));
+    $sql = strtr($sql, array("\t"=>" ", "\r"=>"","\n"=>"")); /* modify for multi user */
 
 	if (read_config_option("log_verbosity") == POLLER_VERBOSITY_DEVDBG) {
 		cacti_log("DEVEL: SQL Cell: \"" . $sql . "\"", FALSE);
@@ -163,7 +167,8 @@ function db_fetch_cell($sql, $col_name = '', $log = TRUE, $db_conn = FALSE) {
 		printf("FATAL: Database or Table does not exist");
 		exit;
 	}else if (($log) || (read_config_option("log_verbosity") >= POLLER_VERBOSITY_DEBUG)) {
-		cacti_log("ERROR: SQL Cell Failed!, Error:'" . $db_conn->ErrorNo() . "', SQL:\"" . str_replace("\n", "", str_replace("\r", "", str_replace("\t", " ", $sql))) . "\"", FALSE);
+		//cacti_log("ERROR: SQL Cell Failed!, Error:'" . $db_conn->ErrorNo() . "', SQL:\"" . str_replace("\n", "", str_replace("\r", "", str_replace("\t", " ", $sql))) . "\"", FALSE);
+		cacti_log("ERROR: SQL Cell Failed!, Error:'" . $db_conn->ErrorNo() . "', SQL:\"" . strtr($sql, array("\t"=>" ", "\r"=>"","\n"=>"")) . "\"", FALSE); /* modify for multi user */
 	}
 }
 
@@ -179,7 +184,8 @@ function db_fetch_row($sql, $log = TRUE, $db_conn = FALSE) {
 		$db_conn = $cnn_id;
 	}
 
-	$sql = str_replace("\n", "", str_replace("\r", "", str_replace("\t", " ", $sql)));
+	//$sql = str_replace("\n", "", str_replace("\r", "", str_replace("\t", " ", $sql)));
+    $sql = strtr($sql, array("\t"=>" ", "\r"=>"","\n"=>"")); /* modify for multi user */
 
 	if (($log) && (read_config_option("log_verbosity") == POLLER_VERBOSITY_DEVDBG)) {
 		cacti_log("DEVEL: SQL Row: \"" . $sql . "\"", FALSE);
@@ -200,7 +206,8 @@ function db_fetch_row($sql, $log = TRUE, $db_conn = FALSE) {
 		printf("FATAL: Database or Table does not exist");
 		exit;
 	}else if (($log) || (read_config_option("log_verbosity") >= POLLER_VERBOSITY_DEBUG)) {
-		cacti_log("ERROR: SQL Row Failed!, Error:'" . $db_conn->ErrorNo() . "', SQL:\"" . str_replace("\n", "", str_replace("\r", "", str_replace("\t", " ", $sql))) . "\"", FALSE);
+		//cacti_log("ERROR: SQL Row Failed!, Error:'" . $db_conn->ErrorNo() . "', SQL:\"" . str_replace("\n", "", str_replace("\r", "", str_replace("\t", " ", $sql))) . "\"", FALSE);
+		cacti_log("ERROR: SQL Row Failed!, Error:'" . $db_conn->ErrorNo() . "', SQL:\"" . strtr($sql, array("\t"=>" ", "\r"=>"","\n"=>"")) . "\"", FALSE); /* modify for multi user */
 	}
 }
 
@@ -216,7 +223,8 @@ function db_fetch_assoc($sql, $log = TRUE, $db_conn = FALSE) {
 		$db_conn = $cnn_id;
 	}
 
-	$sql = str_replace("\n", "", str_replace("\r", "", str_replace("\t", " ", $sql)));
+	//$sql = str_replace("\n", "", str_replace("\r", "", str_replace("\t", " ", $sql)));
+    $sql = strtr($sql, array("\t"=>" ", "\r"=>"","\n"=>"")); /* modify for multi user */
 
 	if (read_config_option("log_verbosity") == POLLER_VERBOSITY_DEVDBG) {
 		cacti_log("DEVEL: SQL Assoc: \"" . $sql . "\"", FALSE);
@@ -240,6 +248,7 @@ function db_fetch_assoc($sql, $log = TRUE, $db_conn = FALSE) {
 		exit;
 	}else if (($log) || (read_config_option("log_verbosity") >= POLLER_VERBOSITY_DEBUG)) {
 		cacti_log("ERROR: SQL Assoc Failed!, Error:'" . $db_conn->ErrorNo() . "', SQL:\"" . str_replace("\n", "", str_replace("\r", "", str_replace("\t", " ", $sql))) . "\"");
+		cacti_log("ERROR: SQL Assoc Failed!, Error:'" . $db_conn->ErrorNo() . "', SQL:\"" . strtr($sql, array("\t"=>" ", "\r"=>"","\n"=>"")) . "\""); /* modify for multi user */
 	}
 }
 
@@ -335,7 +344,8 @@ function sql_save($array_items, $table_name, $key_cols = "id", $autoinc = TRUE, 
 	if (($db_conn->Insert_ID() == "0") || ($replace_result == 1)) {
 		if (!is_array($key_cols)) {
 			if (isset($array_items[$key_cols])) {
-				return str_replace("\"", "", $array_items[$key_cols]);
+				//return str_replace("\"", "", $array_items[$key_cols]);
+                return strtr($array_items[$key_cols], array("\""=>"")); /* modify for multi user */
 			}
 		}
 
@@ -350,7 +360,8 @@ function sql_save($array_items, $table_name, $key_cols = "id", $autoinc = TRUE, 
    @return - fixed value */
 function sql_sanitize($value) {
 	//$value = str_replace("'", "''", $value);
-	$value = str_replace(";", "\;", $value);
+	//$value = str_replace(";", "\;", $value);
+	$value = strtr($value, array(";"=>"\\;")); /* modify for multi user */
 
 	return $value;
 }

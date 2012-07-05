@@ -35,6 +35,16 @@ include_once("./lib/data_query.php");
 
 define("MAX_DISPLAY_PAGES", 21);
 
+/* modify for multi user start */
+if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+    $graph_actions = array(
+        1 => "Delete",
+        2 => "Change Graph Template",
+        5 => "Change Host",
+        6 => "Reapply Suggested Names",
+        3 => "Duplicate"
+        );
+} else {
 $graph_actions = array(
 	1 => "Delete",
 	2 => "Change Graph Template",
@@ -46,6 +56,7 @@ $graph_actions = array(
 	);
 
 $graph_actions = api_plugin_hook_function('graphs_action_array', $graph_actions);
+}
 
 /* set default action */
 if (!isset($_REQUEST["action"])) { $_REQUEST["action"] = ""; }
@@ -99,6 +110,10 @@ switch ($_REQUEST["action"]) {
    -------------------------- */
 
 function add_tree_names_to_actions_array() {
+	/* modify for multi user start */
+    if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) return;
+    /* modify for multi user start */
+
 	global $graph_actions;
 
 	/* add a list of tree names to the actions dropdown */
@@ -116,10 +131,19 @@ function add_tree_names_to_actions_array() {
    -------------------------- */
 
 function form_save() {
+    /* modify for multi user start */
+    if(!empty($_POST["host_id"])) {
+        if (!check_host($_POST["host_id"])) access_denied();
+    }
+    /* modify for multi user end */
+
 	if ((isset($_POST["save_component_graph_new"])) && (!empty($_POST["graph_template_id"]))) {
 		/* ================= input validation ================= */
 		input_validate_input_number(get_request_var_post("graph_template_id"));
 		/* ==================================================== */
+        /* modify for multi user start */
+        if (!check_resource_count(RESOURCE_GRAPH)) access_denied();
+        /* modify for multi user end */
 
 		$save["id"] = $_POST["local_graph_id"];
 		$save["graph_template_id"] = $_POST["graph_template_id"];
@@ -216,14 +240,24 @@ function form_save() {
 		$input_list = db_fetch_assoc("select id,column_name from graph_template_input where graph_template_id=$graph_template_id");
 
 		if (sizeof($input_list) > 0) {
+        /* modify for multi user start */
+        $sql_join = "";
+        if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+            $sql_join = "
+                INNER JOIN graph_local ON graph_templates_item.local_graph_id = graph_local.id 
+                INNER JOIN host ON graph_local.host_id = host.id
+                INNER JOIN user_auth_perms ON host.id = user_auth_perms.item_id AND user_auth_perms.user_id = '" . $_SESSION["sess_user_id"] ."' AND user_auth_perms.type = '3'";
+        }
 		foreach ($input_list as $input) {
 			/* we need to find out which graph items will be affected by saving this particular item */
 			$item_list = db_fetch_assoc("select
 				graph_templates_item.id
 				from (graph_template_input_defs,graph_templates_item)
+                $sql_join
 				where graph_template_input_defs.graph_template_item_id=graph_templates_item.local_graph_template_item_id
 				and graph_templates_item.local_graph_id=" . $_POST["local_graph_id"] . "
 				and graph_template_input_defs.graph_template_input_id=" . $input["id"]);
+            /* modify for multi user end */
 
 			/* loop through each item affected and update column data */
 			if (sizeof($item_list) > 0) {
@@ -264,10 +298,29 @@ function form_save() {
    ------------------------ */
 
 function form_actions() {
+    /* modify for multi user start */
+    if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+        $rows = db_fetch_assoc("
+            SELECT graph_local.id FROM graph_local 
+                INNER JOIN host ON graph_local.host_id = host.id
+                INNER JOIN user_auth_perms ON host.id = user_auth_perms.item_id AND user_auth_perms.user_id = '" . $_SESSION["sess_user_id"] ."' AND user_auth_perms.type = '3'");
+        foreach ($rows as $row) {
+            $graphs[] = $row["id"];
+        }
+    }
+    /* modify for multi user end */	
 	global $colors, $graph_actions;
 	/* if we are to save this form, instead of display it */
 	if (isset($_POST["selected_items"])) {
 		$selected_items = unserialize(stripslashes($_POST["selected_items"]));
+
+        /* modify for multi user start */
+        if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+            for ($i=0;($i<count($selected_items));$i++) {
+                if (!in_array($selected_items[$i], $graphs)) access_denied();
+            }
+        }
+        /* modify for multi user end */
 
 		if ($_POST["drp_action"] == "1") { /* delete */
 			if (!isset($_POST["delete_type"])) { $_POST["delete_type"] = 1; }
@@ -380,6 +433,11 @@ function form_actions() {
 			input_validate_input_number($matches[1]);
 			/* ==================================================== */
 
+            /* modify for multi user start */
+            if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+                if (!in_array($matches[1], $graphs)) access_denied();
+            }
+            /* modify for multi user end */
 			$graph_list .= "<li>" . get_graph_title($matches[1]) . "</li>";
 			$graph_array[$i] = $matches[1];
 
@@ -440,16 +498,22 @@ function form_actions() {
 				";
 			$save_html = "<input type='button' value='Cancel' onClick='window.history.back()'>&nbsp;<input type='submit' value='Continue' title='Delete Graph(s)'>";
 		}elseif ($_POST["drp_action"] == "2") { /* change graph template */
+            /* modify for multi user start */
+            $sql_where = "";
+            if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+                $sql_where = "WHERE graph_templates.name NOT LIKE '%@system'";
+            }
 			print "	<tr>
 					<td class='textArea' bgcolor='#" . $colors["form_alternate1"]. "'>
 						<p>Choose a Graph Template and click \"Continue\" to change the Graph Template for
 						the following Graph(s). Be aware that all warnings will be suppressed during the
 						conversion, so Graph data loss is possible.</p>
 						<p><ul>$graph_list</ul></p>
-						<p><strong>New Graph Template:</strong><br>"; form_dropdown("graph_template_id",db_fetch_assoc("select graph_templates.id,graph_templates.name from graph_templates order by name"),"name","id","","","0"); print "</p>
+						<p><strong>New Graph Template:</strong><br>"; form_dropdown("graph_template_id",db_fetch_assoc("select graph_templates.id,graph_templates.name from graph_templates $sql_where order by name"),"name","id","","","0"); print "</p>
 					</td>
 				</tr>\n
 				";
+            /* modify for multi user end */
 			$save_html = "<input type='button' value='Cancel' onClick='window.history.back()'>&nbsp;<input type='submit' value='Continue' title='Change Graph Template'>";
 		}elseif ($_POST["drp_action"] == "3") { /* duplicate */
 			print "	<tr>
@@ -485,14 +549,19 @@ function form_actions() {
 				";
 			$save_html = "<input type='button' value='Cancel' onClick='window.history.back()'>&nbsp;<input type='submit' value='Continue' title='Place Graph(s) on Tree'>";
 		}elseif ($_POST["drp_action"] == "5") { /* change host */
+            /* modify for multi user start */
+            if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+                $sql_join = "INNER JOIN user_auth_perms ON host.id = user_auth_perms.item_id AND user_auth_perms.user_id = '" . $_SESSION["sess_user_id"] ."' AND user_auth_perms.type = '3'";
+            }
 			print "	<tr>
 					<td class='textArea' bgcolor='#" . $colors["form_alternate1"]. "'>
 						<p>Choose a new Device for these Graph(s) and click \"Continue\"</p>
 						<p><ul>$graph_list</ul></p>
-						<p><strong>New Host:</strong><br>"; form_dropdown("host_id",db_fetch_assoc("select id,CONCAT_WS('',description,' (',hostname,')') as name from host order by description,hostname"),"name","id","","","0"); print "</p>
+						<p><strong>New Host:</strong><br>"; form_dropdown("host_id",db_fetch_assoc("select host.id,CONCAT_WS('',host.description,' (',host.hostname,')') as name from host order by description,hostname"),"name","id","","","0"); print "</p>
 					</td>
 				</tr>\n
 				";
+            /* modify for multi user end */
 			$save_html = "<input type='button' value='Cancel' onClick='window.history.back()'>&nbsp;<input type='submit' value='Continue' title='Change Graph(s) Associated Device'>";
 		}elseif ($_POST["drp_action"] == "6") { /* reapply suggested naming to host */
 			print "	<tr>
@@ -831,6 +900,21 @@ function graph_edit() {
 	input_validate_input_number(get_request_var("id"));
 	/* ==================================================== */
 
+    /* modify for multi user start */
+    if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+        // graph add
+        if ($_GET["id"] == "") {
+            if ($_GET["host_id"] != -1) {
+                input_validate_input_number(get_request_var("host_id"));
+                if (!check_host($_GET["host_id"])) access_denied();
+            }
+        // graph edit
+        } else {
+            $permission = check_graph($_GET["id"]);
+            if ($permission != GRAPH_PRIVATE && $permission != GRAPH_PRIVATE + GRAPH_PUBLIC) access_denied();
+        }
+    }
+    /* modify for multi user end */
 	$use_graph_template = true;
 
 	if (!empty($_GET["id"])) {
@@ -850,6 +934,9 @@ function graph_edit() {
 		$use_graph_template = false;
 	}
 
+    /* modify for multi user start */
+    if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) unset($_GET["debug"]);
+    /* modify for multi user end */
 	/* handle debug mode */
 	if (isset($_GET["debug"])) {
 		if ($_GET["debug"] == "0") {
@@ -867,11 +954,13 @@ function graph_edit() {
 					<?php print htmlspecialchars(get_graph_title($_GET["id"]));?>
 				</td>
 				<td class="textInfo" align="right" valign="top">
+                    <?php /* modify for multi user start */ if ($_SESSION["permission"] == ACCESS_ADMINISTRATOR) { ?>
 					<span style="color: #c16921;">*<a href='<?php print htmlspecialchars("graphs.php?action=graph_edit&id=" . (isset($_GET["id"]) ? $_GET["id"] : "0") . "&debug=" . (isset($_SESSION["graph_debug_mode"]) ? "0" : "1"));?>'>Turn <strong><?php print (isset($_SESSION["graph_debug_mode"]) ? "Off" : "On");?></strong> Graph Debug Mode.</a></span><br>
-					<?php
-						if (!empty($graphs["graph_template_id"])) {
+					<?php }
+						if (!empty($graphs["graph_template_id"]) && $_SESSION["permission"] == ACCESS_ADMINISTRATOR) {
 							?><span style="color: #c16921;">*<a href='<?php print htmlspecialchars("graph_templates.php?action=template_edit&id=" . (isset($graphs["graph_template_id"]) ? $graphs["graph_template_id"] : "0"));?>'>Edit Graph Template.</a></span><br><?php
 						}
+                        /* modify for multi user end */
 						if (!empty($_GET["host_id"]) || !empty($host_id)) {
 							?><span style="color: #c16921;">*<a href='<?php print htmlspecialchars("host.php?action=edit&id=" . (isset($_GET["host_id"]) ? $_GET["host_id"] : $host_id));?>'>Edit Host.</a></span><br><?php
 						}
@@ -923,6 +1012,19 @@ function graph_edit() {
 			"value" => (isset($host_id) ? $host_id : "0")
 			)
 		);
+
+    /* modify for multi user start */
+    if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+        unset($form_array["graph_template_id"]["none_value"]);
+        $form_array["graph_template_id"]["sql"] = "SELECT graph_templates.id,graph_templates.name FROM graph_templates WHERE name NOT LIKE '%@system' ORDER BY name";
+        
+        unset($form_array["host_id"]["none_value"]);
+        $form_array["host_id"]["sql"] = "
+            SELECT host.id,CONCAT_WS('',host.description,' (',host.hostname,')') AS name FROM host 
+                INNER JOIN user_auth_perms ON host.id = user_auth_perms.item_id AND user_auth_perms.user_id = '" . $_SESSION["sess_user_id"] ."' AND user_auth_perms.type = '3' 
+            ORDER BY host.description,host.hostname";
+    }
+    /* modify for multi user end */
 
 	draw_edit_form(
 		array(
@@ -1122,8 +1224,12 @@ function graph() {
 	</script>
 	<?php
 
+    /* modify for multi user start */
+    if (check_resource_count(RESOURCE_GRAPH) == TRUE) {
 	html_start_box("<strong>Graph Management</strong>", "100%", $colors["header"], "3", "center", "graphs.php?action=graph_edit&host_id=" . htmlspecialchars(get_request_var_request("host_id")));
-
+    } else {
+        html_start_box("<strong>Graph Management</strong>", "100%", $colors["header"], "3", "center", "");
+    }
 	?>
 	<tr bgcolor="#<?php print $colors["panel"];?>">
 		<td>
@@ -1136,8 +1242,15 @@ function graph() {
 					<td width="1">
 						<select name="host_id" onChange="applyGraphsFilterChange(document.form_graph_id)">
 							<option value="-1"<?php if (get_request_var_request("host_id") == "-1") {?> selected<?php }?>>Any</option>
+                            <?php /* modify for multi user start */ if ($_SESSION["permission"] == ACCESS_ADMINISTRATOR) { ?>
 							<option value="0"<?php if (get_request_var_request("host_id") == "0") {?> selected<?php }?>>None</option>
-							<?php
+							<?php }
+                            if ($_SESSION["permission"] <= ACCESS_ADMINISTRATOR) {
+                                $hosts = db_fetch_assoc("
+                                    SELECT host.id,CONCAT_WS('',host.description,' (',host.hostname,')') as name FROM host 
+                                        INNER JOIN user_auth_perms ON host.id = user_auth_perms.item_id AND user_auth_perms.user_id = '" . $_SESSION["sess_user_id"] ."' AND user_auth_perms.type = '3' 
+                                    ORDER BY host.description,host.hostname");
+                            } else {
 							if (read_config_option("auth_method") != 0) {
 								/* get policy information for the sql where clause */
 								$current_user = db_fetch_row("select * from user_auth where id=" . $_SESSION["sess_user_id"]);
@@ -1156,6 +1269,8 @@ function graph() {
 									FROM host
 									ORDER BY name");
 							}
+                            }
+                            /* modify for multi user end */
 
 							if (sizeof($hosts) > 0) {
 								foreach ($hosts as $host) {
@@ -1171,8 +1286,17 @@ function graph() {
 					<td width="1">
 						<select name="template_id" onChange="applyGraphsFilterChange(document.form_graph_id)">
 							<option value="-1"<?php if (get_request_var_request("template_id") == "-1") {?> selected<?php }?>>Any</option>
+                            <?php /* modify for multi user start */ if ($_SESSION["permission"] == ACCESS_ADMINISTRATOR) { ?>
 							<option value="0"<?php if (get_request_var_request("template_id") == "0") {?> selected<?php }?>>None</option>
-							<?php
+							<?php }
+                            if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+                                $templates = db_fetch_assoc("
+                                    SELECT DISTINCT graph_templates.id, graph_templates.name FROM graph_templates
+                                        LEFT JOIN graph_local ON graph_templates.id = graph_local.graph_template_id
+                                        INNER JOIN host ON graph_local.host_id = host.id
+                                        INNER JOIN user_auth_perms ON host.id = user_auth_perms.item_id AND user_auth_perms.user_id = '" . $_SESSION["sess_user_id"] ."' AND user_auth_perms.type = '3'
+                                    ORDER BY graph_templates.name");
+                            } else {
 							if (read_config_option("auth_method") != 0) {
 								$templates = db_fetch_assoc("SELECT DISTINCT graph_templates.id, graph_templates.name
 									FROM (graph_templates_graph,graph_local)
@@ -1188,6 +1312,8 @@ function graph() {
 									FROM graph_templates
 									ORDER BY name");
 							}
+                            }
+                            /* modify for multi user end */
 
 							if (sizeof($templates) > 0) {
 								foreach ($templates as $template) {
@@ -1206,7 +1332,7 @@ function graph() {
 			<table cellpadding="1" cellspacing="0">
 				<tr>
 					<td width="50">
-						&nbsp;Search:&nbsp;
+						Search:&nbsp;
 					</td>
 					<td>
 						<input type="text" name="filter" size="40" value="<?php print htmlspecialchars(get_request_var_request("filter"));?>">
@@ -1268,14 +1394,23 @@ function graph() {
 
 	html_start_box("", "100%", $colors["header"], "3", "center", "");
 
+    /* modify for multi user start */
+    $sql_join = "";
+    if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+	    $sql_join = "
+        	INNER JOIN host ON graph_local.host_id = host.id
+            INNER JOIN user_auth_perms ON host.id = user_auth_perms.item_id AND user_auth_perms.user_id = '" . $_SESSION["sess_user_id"] ."' AND user_auth_perms.type = '3'";
+    }
+
 	$total_rows = db_fetch_cell("SELECT
-		COUNT(graph_templates_graph.id)
+		DISTINCT(COUNT(graph_templates_graph.id))
 		FROM (graph_local,graph_templates_graph)
 		LEFT JOIN graph_templates ON (graph_local.graph_template_id=graph_templates.id)
+        $sql_join
 		WHERE graph_local.id=graph_templates_graph.local_graph_id
 		$sql_where");
 
-	$graph_list = db_fetch_assoc("SELECT
+	$graph_list = db_fetch_assoc("SELECT DISTINCT
 		graph_templates_graph.id,
 		graph_templates_graph.local_graph_id,
 		graph_templates_graph.height,
@@ -1285,11 +1420,12 @@ function graph() {
 		graph_local.host_id
 		FROM (graph_local,graph_templates_graph)
 		LEFT JOIN graph_templates ON (graph_local.graph_template_id=graph_templates.id)
+        $sql_join
 		WHERE graph_local.id=graph_templates_graph.local_graph_id
 		$sql_where
 		ORDER BY " . $_REQUEST["sort_column"] . " " . get_request_var_request("sort_direction") .
 		" LIMIT " . (get_request_var_request("graph_rows")*(get_request_var_request("page")-1)) . "," . get_request_var_request("graph_rows"));
-
+    /* modify for multi user end */
 	/* generate page list */
 	$url_page_select = get_page_list(get_request_var_request("page"), MAX_DISPLAY_PAGES, get_request_var_request("graph_rows"), $total_rows, "graphs.php?filter=" . get_request_var_request("filter") . "&host_id=" . get_request_var_request("host_id"));
 

@@ -26,6 +26,9 @@ include("./include/auth.php");
 
 api_plugin_hook('logout_pre_session_destroy');
 
+/* modify for multi user start */
+setcookie("stay_login", "", time() - 3600,"/");
+/* modify for multi user end */
 /* Clear session */
 setcookie(session_name(),"",time() - 3600,"/");
 session_destroy();

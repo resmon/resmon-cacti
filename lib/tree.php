@@ -22,8 +22,8 @@
  +-------------------------------------------------------------------------+
 */
 
-define("CHARS_PER_TIER", 3);
-define("MAX_TREE_DEPTH", 30);
+define("CHARS_PER_TIER", 6);
+define("MAX_TREE_DEPTH", 15);
 
 define("SORT_TYPE_TREE", 1);
 define("SORT_TYPE_TREE_ITEM", 2);

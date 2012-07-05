@@ -241,6 +241,10 @@ function is_graph_allowed($local_graph_id) {
 	$current_user = db_fetch_row("select policy_graphs,policy_hosts,policy_graph_templates from user_auth where id=" . $_SESSION["sess_user_id"]);
 
 	/* get policy information for the sql where clause */
+    /* modify for multi user start */
+    if ($_SESSION["permission"] <= ACCESS_ADMINISTRATOR && strstr($_SERVER["HTTP_REFERER"], $_SERVER["SERVER_NAME"]) && check_graph($local_graph_id)) {
+        $graphs = TRUE;
+    } else {
 	$sql_where = get_graph_permissions_sql($current_user["policy_graphs"], $current_user["policy_hosts"], $current_user["policy_graph_templates"]);
 
 	$graphs = db_fetch_assoc("select
@@ -253,7 +257,8 @@ function is_graph_allowed($local_graph_id) {
 		" . (empty($sql_where) ? "" : "and $sql_where") . "
 		and graph_templates_graph.local_graph_id=$local_graph_id
 		group by graph_templates_graph.local_graph_id");
-
+    }
+    /* modify for multi user end */
 	if (sizeof($graphs) > 0) {
 		return true;
 	}else{

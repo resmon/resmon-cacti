@@ -33,6 +33,17 @@ include_once("./lib/data_query.php");
 
 define("MAX_DISPLAY_PAGES", 21);
 
+/* modify for multi user start */
+if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+    $ds_actions = array(
+        1 => "Delete",
+        2 => "Change Data Template",
+        3 => "Change Host",
+        8 => "Reapply Suggested Names",
+        6 => "Enable",
+        7 => "Disable"
+        );
+} else {
 $ds_actions = array(
 	1 => "Delete",
 	2 => "Change Data Template",
@@ -45,6 +56,8 @@ $ds_actions = array(
 	);
 
 $ds_actions = api_plugin_hook_function('data_source_action_array', $ds_actions);
+}
+/* modify for multi user end */
 
 /* set default action */
 if (!isset($_REQUEST["action"])) { $_REQUEST["action"] = ""; }
@@ -96,12 +109,21 @@ switch ($_REQUEST["action"]) {
    -------------------------- */
 
 function form_save() {
+    /* modify for multi user start */
+    if(!empty($_POST["host_id"])) {
+        if (!check_host($_POST["host_id"])) access_denied();
+    }
+    /* modify for multi user end */
+
 	if ((isset($_POST["save_component_data_source_new"])) && (!empty($_POST["data_template_id"]))) {
 		/* ================= input validation ================= */
 		input_validate_input_number(get_request_var_post("host_id"));
 		input_validate_input_number(get_request_var_post("data_template_id"));
 		/* ==================================================== */
-
+        /* modify for multi user start */
+        if (!check_resource_count(RESOURCE_DATA)) access_denied();
+        /* modify for multi user end */
+        
 		$save["id"] = $_POST["local_data_id"];
 		$save["data_template_id"] = $_POST["data_template_id"];
 		$save["host_id"] = $_POST["host_id"];
@@ -176,6 +198,14 @@ function form_save() {
 		input_validate_input_number(get_request_var_post("data_template_id"));
 		input_validate_input_number(get_request_var_post("host_id"));
 		/* ==================================================== */
+        /* modify for multi user start */
+        if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+            // Settings -> Paths -> Structured RRD Path(extended_paths) -> ON
+            preg_match("/(^<path_rra>\/)(" . $_POST["host_id"] . "\/)([0-9]+)(\.rrd$)/", form_input_validate($_POST["data_source_path"], "data_source_path", "", true, 3), $matches);
+            if ($_POST["local_data_id"] != $matches[3]) access_denied();
+        }
+        if (!check_data($_POST["local_data_id"])) access_denied();
+        /* modify for multi user start */
 
 		$save1["id"] = $_POST["local_data_id"];
 		$save1["data_template_id"] = $_POST["data_template_id"];
@@ -305,11 +335,30 @@ function form_save() {
    ------------------------ */
 
 function form_actions() {
+    /* modify for multi user start */
+    if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+        $rows = db_fetch_assoc("
+            SELECT data_local.id FROM data_local
+                INNER JOIN host ON data_local.host_id = host.id
+                INNER JOIN user_auth_perms ON host.id = user_auth_perms.item_id AND user_auth_perms.user_id = '" . $_SESSION["sess_user_id"] ."' AND user_auth_perms.type = '3'");
+        foreach ($rows as $row) {
+            $data_sources[] = $row["id"];
+        }
+    }
+    /* modify for multi user end */
 	global $colors, $ds_actions;
 
 	/* if we are to save this form, instead of display it */
 	if (isset($_POST["selected_items"])) {
 		$selected_items = unserialize(stripslashes($_POST["selected_items"]));
+
+        /* modify for multi user start */
+        if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+            for ($i=0;($i<count($selected_items));$i++) {
+                if (!in_array($selected_items[$i], $data_sources)) access_denied();
+            }
+        }
+        /* modify for multi user end */
 
 		if ($_POST["drp_action"] == "1") { /* delete */
 			if (!isset($_POST["delete_type"])) { $_POST["delete_type"] = 1; }
@@ -423,6 +472,11 @@ function form_actions() {
 			input_validate_input_number($matches[1]);
 			/* ==================================================== */
 
+            /* modify for multi user start */
+            if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+                if (!in_array($matches[1], $data_sources)) access_denied();
+            }
+            /* modify for multi user end */
 			$ds_list .= "<li>" . get_data_source_title($matches[1]) . "<br>";
 			$ds_array[$i] = $matches[1];
 
@@ -480,26 +534,37 @@ function form_actions() {
 				";
 			$save_html = "<input type='button' value='Cancel' onClick='window.history.back()'>&nbsp;<input type='submit' value='Continue' title='Delete Data Source(s)'>";
 		}elseif ($_POST["drp_action"] == "2") { /* change graph template */
+            /* modify for multi user start */
+            $sql_where = "";
+            if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+                $sql_where = "WHERE data_template.name NOT LIKE '%@system'";
+            }
 			print "	<tr>
 					<td class='textArea' bgcolor='#" . $colors["form_alternate1"]. "'>
 						<p>Choose a Data Template and click \"Continue\" to change the Data Template for
 						the following Data Source(s). Be aware that all warnings will be suppressed during the
 						conversion, so graph data loss is possible.</p>
 						<p><ul>$ds_list</ul></p>
-						<p><strong>New Data Template:</strong><br>"; form_dropdown("data_template_id",db_fetch_assoc("select data_template.id,data_template.name from data_template order by data_template.name"),"name","id","","","0"); print "</p>
+						<p><strong>New Data Template:</strong><br>"; form_dropdown("data_template_id",db_fetch_assoc("select data_template.id,data_template.name from data_template $sql_where order by data_template.name"),"name","id","","","0"); print "</p>
 					</td>
 				</tr>\n
 				";
+            /* modify for multi user end */
 			$save_html = "<input type='button' value='Cancel' onClick='window.history.back()'>&nbsp;<input type='submit' value='Continue' title='Change Graph Template for Data Source(s)'>";
 		}elseif ($_POST["drp_action"] == "3") { /* change host */
+            /* modify for multi user start */
+            if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+                $sql_join = "INNER JOIN user_auth_perms ON host.id = user_auth_perms.item_id AND user_auth_perms.user_id = '" . $_SESSION["sess_user_id"] ."' AND user_auth_perms.type = '3'";
+            }
 			print "	<tr>
 					<td class='textArea' bgcolor='#" . $colors["form_alternate1"]. "'>
 						<p>Choose a new Device for these Data Source(s) and click \"Continue\"</p>
 						<p><ul>$ds_list</ul></p>
-						<p><strong>New Host:</strong><br>"; form_dropdown("host_id",db_fetch_assoc("select id,CONCAT_WS('',description,' (',hostname,')') as name from host order by description,hostname"),"name","id","","","0"); print "</p>
+						<p><strong>New Host:</strong><br>"; form_dropdown("host_id",db_fetch_assoc("select host.id,CONCAT_WS('',host.description,' (',host.hostname,')') as name from host $sql_join order by description,hostname"),"name","id","","","0"); print "</p>
 					</td>
 				</tr>\n
 				";
+            /* modify for multi user end */
 			$save_html = "<input type='button' value='Cancel' onClick='window.history.back()'>&nbsp;<input type='submit' value='Continue' title='Change Device'>";
 		}elseif ($_POST["drp_action"] == "4") { /* duplicate */
 			print "	<tr>
@@ -586,6 +651,9 @@ function data_edit() {
 	/* ================= input validation ================= */
 	input_validate_input_number(get_request_var("id"));
 	/* ==================================================== */
+    /* modify for multi user start */
+    if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) access_denied();
+    /* modify for multi user end */
 
 	global $config, $colors;
 
@@ -694,6 +762,19 @@ function ds_edit() {
 	input_validate_input_number(get_request_var("id"));
 	input_validate_input_number(get_request_var("host_id"));
 	/* ==================================================== */
+    /* modify for multi user start */
+    if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+        // data_source add
+        if ($_GET["id"] == "") {
+            if ($_GET["host_id"] != -1) {
+                if (!check_host($_GET["host_id"])) access_denied();
+            }
+        // data_source edit
+        } else {
+            if (!check_data($_GET["id"])) access_denied();
+        }
+    }
+    /* modify for multi user end */
 
 	api_plugin_hook('data_source_edit_top');
 
@@ -724,14 +805,18 @@ function ds_edit() {
 		$use_data_template = false;
 	}
 
-	/* handle debug mode */
-	if (isset($_GET["debug"])) {
-		if ($_GET["debug"] == "0") {
-			kill_session_var("ds_debug_mode");
-		}elseif ($_GET["debug"] == "1") {
-			$_SESSION["ds_debug_mode"] = true;
-		}
-	}
+	
+    /* modify for multi user start */
+    if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) unset($_GET["debug"]);
+    /* modify for multi user end */
+    /* handle debug mode */
+    if (isset($_GET["debug"])) {
+        if ($_GET["debug"] == "0") {
+            kill_session_var("ds_debug_mode");
+        }elseif ($_GET["debug"] == "1") {
+            $_SESSION["ds_debug_mode"] = true;
+        }
+    }
 
 	include_once("./include/top_header.php");
 
@@ -743,11 +828,13 @@ function ds_edit() {
 					<?php print htmlspecialchars(get_data_source_title($_GET["id"]));?>
 				</td>
 				<td class="textInfo" align="right" valign="top">
+                    <?php /* modify for multi user start */ if ($_SESSION["permission"] == ACCESS_ADMINISTRATOR) { ?>
 					<span style="color: #c16921;">*<a href='<?php print htmlspecialchars("data_sources.php?action=ds_edit&id=" . (isset($_GET["id"]) ? $_GET["id"] : "0"));?>&debug=<?php print (isset($_SESSION["ds_debug_mode"]) ? "0" : "1");?>'>Turn <strong><?php print (isset($_SESSION["ds_debug_mode"]) ? "Off" : "On");?></strong> Data Source Debug Mode.</a><br>
-					<?php
-						if (!empty($data_template["id"])) {
+					<?php }
+						if (!empty($data_template["id"]) && $_SESSION["permission"] == ACCESS_ADMINISTRATOR) {
 							?><span style="color: #c16921;">*<a href='<?php print htmlspecialchars("data_templates.php?action=template_edit&id=" . (isset($data_template["id"]) ? $data_template["id"] : "0"));?>'>Edit Data Template.</a><br><?php
 						}
+                        /* modify for multi user end */
 						if (!empty($_GET["host_id"]) || !empty($data_local["host_id"])) {
 							?><span style="color: #c16921;">*<a href='<?php print htmlspecialchars("host.php?action=edit&id=" . (isset($_GET["host_id"]) ? $_GET["host_id"] : $data_local["host_id"]));?>'>Edit Host.</a><br><?php
 						}
@@ -803,6 +890,19 @@ function ds_edit() {
 			"value" => (isset($data) ? $data["local_data_id"] : "0")
 			),
 		);
+
+    /* modify for multi user start */
+    if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+        unset($form_array["data_template_id"]["none_value"]);
+        $form_array["data_template_id"]["sql"] = "SELECT id,name FROM data_template WHERE name NOT LIKE '%@system' ORDER BY name";
+        
+        unset($form_array["host_id"]["none_value"]);
+        $form_array["host_id"]["sql"] = "
+            SELECT host.id,CONCAT_WS('',host.description,' (',host.hostname,')') AS name FROM host 
+                INNER JOIN user_auth_perms ON host.id = user_auth_perms.item_id AND user_auth_perms.user_id = '" . $_SESSION["sess_user_id"] ."' AND user_auth_perms.type = '3' 
+            ORDER BY host.description,host.hostname";
+    }
+    /* modify for multi user end */
 
 	draw_edit_form(
 		array(
@@ -1087,8 +1187,13 @@ function ds() {
 	</script>
 	<?php
 
+    /* modify for multi user start */
+    if (check_resource_count(RESOURCE_DATA) == TRUE) {
 	html_start_box("<strong>Data Sources</strong> [host: " . (empty($host["hostname"]) ? "No Host" : htmlspecialchars($host["hostname"])) . "]", "100%", $colors["header"], "3", "center", "data_sources.php?action=ds_edit&host_id=" . get_request_var_request("host_id"));
-
+    } else {
+        html_start_box("<strong>Data Sources</strong> [host: " . (empty($host["hostname"]) ? "No Host" : htmlspecialchars($host["hostname"])) . "]", "100%", $colors["header"], "3", "center", "");
+    }
+    /* modify for multi user end */
 	?>
 	<tr bgcolor="#<?php print $colors["panel"];?>">
 		<td>
@@ -1101,9 +1206,18 @@ function ds() {
 					<td>
 						<select name="host_id" onChange="applyDSFilterChange(document.form_data_sources)">
 							<option value="-1"<?php if (get_request_var_request("host_id") == "-1") {?> selected<?php }?>>Any</option>
+                            <?php /* modify for multi user start */ if ($_SESSION["permission"] == ACCESS_ADMINISTRATOR) { ?>
 							<option value="0"<?php if (get_request_var_request("host_id") == "0") {?> selected<?php }?>>None</option>
-							<?php
+							<?php }
+                            if ($_SESSION["permission"] <= ACCESS_ADMINISTRATOR) {
+                                $hosts = db_fetch_assoc("
+                                    SELECT host.id,CONCAT_WS('',host.description,' (',host.hostname,')') as name FROM host 
+                                        INNER JOIN user_auth_perms ON host.id = user_auth_perms.item_id AND user_auth_perms.user_id = '" . $_SESSION["sess_user_id"] ."' AND user_auth_perms.type = '3' 
+                                    ORDER BY host.description,host.hostname");
+                            } else {
 							$hosts = db_fetch_assoc("select id,CONCAT_WS('',description,' (',hostname,')') as name from host order by description,hostname");
+                            }
+                            /* modify for multi user end */
 
 							if (sizeof($hosts) > 0) {
 								foreach ($hosts as $host) {
@@ -1120,15 +1234,27 @@ function ds() {
 					<td width="1">
 						<select name="template_id" onChange="applyDSFilterChange(document.form_data_sources)">
 							<option value="-1"<?php if (get_request_var_request("template_id") == "-1") {?> selected<?php }?>>Any</option>
+                            <?php /* modify for multi user start */ if ($_SESSION["permission"] == ACCESS_ADMINISTRATOR) { ?>
 							<option value="0"<?php if (get_request_var_request("template_id") == "0") {?> selected<?php }?>>None</option>
-							<?php
-
+							<?php }
+                            if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+                                $templates = db_fetch_assoc("
+                                    SELECT DISTINCT data_template.id, data_template.name FROM data_template
+                                        INNER JOIN data_template_data ON data_template.id = data_template_data.data_template_id
+                                        INNER JOIN data_local ON data_template_data.local_data_id = data_local.id
+                                        INNER JOIN host ON data_local.host_id = host.id
+                                        INNER JOIN user_auth_perms ON host.id = user_auth_perms.item_id AND user_auth_perms.user_id = '" . $_SESSION["sess_user_id"] ."' AND user_auth_perms.type = '3'
+                                    WHERE data_template_data.local_data_id > 0
+                                    ORDER BY data_template.name");
+                            } else {
 							$templates = db_fetch_assoc("SELECT DISTINCT data_template.id, data_template.name
 								FROM data_template
 								INNER JOIN data_template_data
 								ON data_template.id=data_template_data.data_template_id
 								WHERE data_template_data.local_data_id>0
 								ORDER BY data_template.name");
+                            }
+                            /* modify for multi user end */
 
 							if (sizeof($templates) > 0) {
 								foreach ($templates as $template) {
@@ -1151,15 +1277,27 @@ function ds() {
 					<td width="1">
 						<select name="method_id" onChange="applyDSFilterChange(document.form_data_sources)">
 							<option value="-1"<?php if (get_request_var_request("method_id") == "-1") {?> selected<?php }?>>Any</option>
+                            <?php /* modify for multi user start */ if ($_SESSION["permission"] == ACCESS_ADMINISTRATOR) { ?>
 							<option value="0"<?php if (get_request_var_request("method_id") == "0") {?> selected<?php }?>>None</option>
-							<?php
-
+							<?php }
+                            if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+                                $methods = db_fetch_assoc("
+                                    SELECT DISTINCT data_input.id, data_input.name FROM data_input
+                                        INNER JOIN data_template_data ON data_input.id = data_template_data.data_input_id
+                                        INNER JOIN data_local ON data_template_data.local_data_id = data_local.id
+                                        INNER JOIN host ON data_local.host_id = host.id
+                                        INNER JOIN user_auth_perms ON host.id = user_auth_perms.item_id AND user_auth_perms.user_id = '" . $_SESSION["sess_user_id"] ."' AND user_auth_perms.type = '3'
+                                    WHERE data_template_data.local_data_id > 0
+                                    ORDER BY data_input.name");
+                            } else {
 							$methods = db_fetch_assoc("SELECT DISTINCT data_input.id, data_input.name
 								FROM data_input
 								INNER JOIN data_template_data
 								ON data_input.id=data_template_data.data_input_id
 								WHERE data_template_data.local_data_id>0
 								ORDER BY data_input.name");
+                            }
+                            /* modify for multi user end */
 
 							if (sizeof($methods) > 0) {
 								foreach ($methods as $method) {
@@ -1248,27 +1386,37 @@ function ds() {
 		$sql_where2 .= " AND data_template_data.data_input_id=" . get_request_var_request("method_id");
 	}
 
-	$total_rows = sizeof(db_fetch_assoc("SELECT
+    /* modify for multi user start */
+    $sql_join = "";
+    if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+	    $sql_join = "
+        	INNER JOIN host ON data_local.host_id = host.id
+            INNER JOIN user_auth_perms ON host.id = user_auth_perms.item_id AND user_auth_perms.user_id = '" . $_SESSION["sess_user_id"] ."' AND user_auth_perms.type = '3'";
+    }
+
+	$total_rows = sizeof(db_fetch_assoc("SELECT DISTINCT 
 		data_local.id
 		FROM (data_local,data_template_data)
 		LEFT JOIN data_input
 		ON (data_input.id=data_template_data.data_input_id)
 		LEFT JOIN data_template
 		ON (data_local.data_template_id=data_template.id)
+        $sql_join
 		WHERE data_local.id=data_template_data.local_data_id
 		$sql_where1"));
 
-	$poller_intervals = array_rekey(db_fetch_assoc("SELECT data_template_data.local_data_id AS id,
+	$poller_intervals = array_rekey(db_fetch_assoc("SELECT DISTINCT data_template_data.local_data_id AS id,
 		Min(data_template_data.rrd_step*rra.steps) AS poller_interval
 		FROM data_template
 		INNER JOIN (data_local
 		INNER JOIN ((data_template_data_rra
 		INNER JOIN data_template_data ON data_template_data_rra.data_template_data_id=data_template_data.id)
 		INNER JOIN rra ON data_template_data_rra.rra_id = rra.id) ON data_local.id = data_template_data.local_data_id) ON data_template.id = data_template_data.data_template_id
+		$sql_join 
 		$sql_where2
 		GROUP BY data_template_data.local_data_id"), "id", "poller_interval");
 
-	$data_sources = db_fetch_assoc("SELECT
+	$data_sources = db_fetch_assoc("SELECT DISTINCT 
 		data_template_data.local_data_id,
 		data_template_data.name_cache,
 		data_template_data.active,
@@ -1280,10 +1428,12 @@ function ds() {
 		ON (data_input.id=data_template_data.data_input_id)
 		LEFT JOIN data_template
 		ON (data_local.data_template_id=data_template.id)
+		$sql_join
 		WHERE data_local.id=data_template_data.local_data_id
 		$sql_where1
 		ORDER BY ". get_request_var_request("sort_column") . " " . get_request_var_request("sort_direction") .
 		" LIMIT " . (get_request_var_request("ds_rows")*(get_request_var_request("page")-1)) . "," . get_request_var_request("ds_rows"));
+    /* modify for multi user end */
 
 	print "<form name='chk' method='post' action='data_sources.php'>\n";
 
@@ -1336,7 +1486,11 @@ function ds() {
 
 			/* keep copy of data source for comparison */
 			$data_source_orig = $data_source;
+            /* modify for multi user start */
+            if ($_SESSION["permission"] > ACCESS_NORMAL_USER) {
 			$data_source = api_plugin_hook_function('data_sources_table', $data_source);
+            }
+            /* modify for multi user end */
 			/* we're escaping strings here, so no need to escape them on form_selectable_cell */
 			if ($data_source_orig["data_template_name"] != $data_source["data_template_name"]) {
 				/* was changed by plugin, plugin has to take care for html-escaping */

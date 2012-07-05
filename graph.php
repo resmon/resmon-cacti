@@ -42,6 +42,32 @@ input_validate_input_number(get_request_var("graph_start"));
 input_validate_input_regex(get_request_var_request("view_type"), "^([a-zA-Z0-9]+)$");
 /* ==================================================== */
 
+/* modify for multi user start */
+if (check_graph($_GET["local_graph_id"]) == GRAPH_PUBLIC) {
+    // create table
+    if (!db_fetch_row("SHOW TABLE STATUS LIKE 'graph_access_counter'")) {
+        $sql = "
+            CREATE TABLE IF NOT EXISTS `graph_access_counter` (
+              `local_graph_id`      mediumint(8) unsigned NOT NULL default '0',
+              `count`               mediumint(8) unsigned NOT NULL default '0',
+              `ip_hash`             char(64) default NULL,
+              `time`                datetime NOT NULL default '0000-00-00 00:00:00',
+              `disabled`            char(2) default NULL,
+              PRIMARY KEY           (local_graph_id),
+              KEY local_graph_id    (local_graph_id)
+            ) ENGINE=MyISAM;";
+        db_execute($sql);
+    }
+    $ip_hash = hash_hmac('sha256', $_SERVER["REMOTE_ADDR"], FALSE);
+    if(!db_fetch_cell("
+        SELECT graph_access_counter.local_graph_id FROM graph_access_counter 
+        WHERE graph_access_counter.local_graph_id = '" . $_GET["local_graph_id"] . "' AND graph_access_counter.ip_hash = '" . $ip_hash . "'")) {
+        $count = "(SELECT COALESCE((SELECT gac.count FROM graph_access_counter AS gac WHERE gac.local_graph_id = '" . $_GET["local_graph_id"] . "'),0) + 1)";
+        db_execute("REPLACE INTO graph_access_counter VALUES('" . $_GET["local_graph_id"] . "', $count, '" . $ip_hash . "', NOW(),'')");
+    }
+}
+/* modify for multi user end */
+
 if (!isset($_GET['rra_id'])) {
 	$_GET['rra_id'] = 'all';
 }

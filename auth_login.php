@@ -57,6 +57,18 @@ if (read_config_option("auth_method") == "2") {
 
 $username = sanitize_search_string($username);
 
+/* modify for multi user start */
+// user login after guest access, remove cookie for user tree show
+if (isset($_SESSION["sess_config_array"]["guest_user"])) {
+    setcookie(session_name(),"",time() - 3600,"/");
+}
+if (isset($_COOKIE['stay_login'])) {
+    $action = "login";
+    $_POST["realm"] = "ldap";
+    $_POST["stay_login"] = "on";
+}
+/* modify for multi user end */
+
 /* process login */
 $copy_user = false;
 $user_auth = false;
@@ -81,6 +93,30 @@ if ($action == 'login') {
 
 		break;
 	case "3":
+        /* modify for multi user start */
+        // stay login for ldap user
+        if (get_request_var_post("realm") == "ldap" && get_request_var_post("stay_login") === "on" && isset($_COOKIE['stay_login'])) {
+            $username = get_stay_logon_user();
+            if (!empty($username)) {
+                unset($_POST["login_password"]);
+                /* User ok */
+                $user_auth = true;
+                $copy_user = true;
+                $realm = 1;
+                /* Locate user in database */
+                cacti_log("LOGIN: LDAP User '" . $username . "' Authenticated", false, "AUTH");
+                $user = db_fetch_row("SELECT * FROM user_auth WHERE username = " . $cnn_id->qstr($username) . " AND realm = 1");
+            }
+        } else {
+            // local user
+            preg_match("/(^\')(.*?)(\@)(.*?)(\'$)/", $cnn_id->qstr($username), $matches);
+            if ($matches[4] === "local") {
+                $username = $matches[2];
+                $_POST["realm"] = "local";
+            }
+        }
+        /* modify for multi user end */
+
 		/* LDAP Auth */
  		if ((get_request_var_post("realm") == "ldap") && (strlen(get_request_var_post("login_password")) > 0)) {
 			/* include LDAP lib */
@@ -128,7 +164,9 @@ if ($action == 'login') {
 			/* Builtin Auth */
 			if ((!$user_auth) && (!$ldap_error)) {
 				/* if auth has not occured process for builtin - AKA Ldap fall through */
-				$user = db_fetch_row("SELECT * FROM user_auth WHERE username = " . $cnn_id->qstr($username) . " AND password = '" . md5(get_request_var_post("login_password")) . "' AND realm = 0");
+                /* modify for multi user start */
+                $user = db_fetch_row("SELECT * FROM user_auth WHERE username = " . $cnn_id->qstr($matches[2]) . " AND password = '" . md5(get_request_var_post("login_password")) . "' AND realm = 0");
+                /* modify for multi user end */
 			}
 		}
 	}
@@ -143,6 +181,9 @@ if ($action == 'login') {
 			user_copy(read_config_option("user_template"), $username, 0, $realm);
 			/* requery newly created user */
 			$user = db_fetch_row("SELECT * FROM user_auth WHERE username = " . $cnn_id->qstr($username) . " AND realm = " . $realm);
+            /* modify for multi user start */
+            generate_user_env($user);
+            /* modify for multi user end */
 		}else{
 			/* error */
 			cacti_log("LOGIN: Template user '" . read_config_option("user_template") . "' does not exist.", false, "AUTH");
@@ -169,6 +210,12 @@ if ($action == 'login') {
 
 	/* Process the user  */
 	if (sizeof($user) > 0) {
+        /* modify for multi user start */
+        if (get_request_var_post("realm") == "ldap" && get_request_var_post("stay_login") === "on" && empty($_COOKIE['stay_login'])) {
+            set_stay_logon_user($username);
+        }
+        /* modify for multi user end */
+
 		cacti_log("LOGIN: User '" . $user["username"] . "' Authenticated", false, "AUTH");
 		db_execute("INSERT INTO user_log (username,user_id,result,ip,time) VALUES (" . $cnn_id->qstr($username) . "," . $user["id"] . ",1,'" . $_SERVER["REMOTE_ADDR"] . "',NOW())");
 		/* is user enabled */
@@ -242,6 +289,258 @@ if ($action == 'login') {
 	}
 }
 
+/* modify for multi user start */
+// signup
+if ($action == 's2') {
+    /* ================= input validation ================= */
+    input_validate_input_regex(get_request_var_request("login_username"), "^([A-Za-z0-9]+[\w-]{2,})$");
+    input_validate_input_regex(get_request_var_request("login_password"), "^([\w\=\+\-\*\/\%\^\~\!\?\&\|\@\#\$\(\)\[\]\{\}\<\>\,\.\;\:]{6,})$");
+    input_validate_input_regex(get_request_var_request("mail_address"), "^([A-Za-z0-9]+[\w-]*@[\w\.-]+\.\w{2,})$");
+    /* ==================================================== */
+    $username = get_request_var_request("login_username");
+    for ($i=1;$i<=10;$i++) { $salt .= substr('0123456789abcdef',rand(0,15),1); }
+    $password = "{SSHA}".base64_encode(pack("H*",sha1(get_request_var_request("login_password").$salt)).$salt);
+    //$password = get_request_var_request("login_password");
+    $mailaddr = get_request_var_request("mail_address");
+
+    include_once("./lib/ldap.php");
+    $ldap_dn_search_response = cacti_ldap_search_dn($username);
+    // User found
+    if ($ldap_dn_search_response["error_num"] == "0") {
+        $caution_msg = "Sorry. signup username is already in use.";
+        cacti_log("SIGNUP: signup username is already in use", false, "AUTH");
+    // Unable to find users
+    } elseif ($ldap_dn_search_response["error_num"] == "3") {
+        // duplicate mail address
+        $ldap_dn_search_response = cacti_ldap_search_dn("dummy", "", "", "", "", "", "", "", "", "", "mail=$mailaddr");
+        if ($ldap_dn_search_response["error_num"] == "0") {
+            $caution_msg = "Sorry. mail address is already in use.";
+            cacti_log("SIGNUP: mail address is already in use.", false, "AUTH");
+        } else {
+            // hash
+            $hash1 = hash_hmac("sha256", $username . $_SERVER["REMOTE_ADDR"] . $_SERVER["HTTP_USER_AGENT"], FALSE);
+            $hash2 = hash_hmac("sha256", $username . time() . $password, FALSE);
+            // add user to ldap
+            $attrib["objectclass"][0] = "inetOrgPerson";
+            $attrib["objectclass"][1] = "pwdPolicy";
+            $attrib["uid"]            = $username;
+            $attrib["cn"]             = $username;
+            $attrib["sn"]             = $username;
+            $attrib["description"]    = $hash1 . $hash2;
+            $attrib["userPassword"]   = $password;
+            $attrib["mail"]           = $mailaddr;
+            $attrib["pwdAttribute"]   = "2.5.4.35";
+            $attrib["pwdLockout"]     = "TRUE";
+            $ldap_dn_add_response = cacti_ldap_mod_dn(1, $username, $attrib);
+            if ($ldap_dn_add_response["error_num"] == "0") {
+                // send mail
+                $message = file_get_contents("./text/signup_mail.txt") . "http://" . $_SERVER["SERVER_NAME"] . "/index.php?action=s3&h=" . $hash1;
+                $message = str_replace("%USERNAME%", $username, $message);
+                $errors = send_mail($mailaddr, "", "Resmon account sign up", $message);
+                if ($errors == "") {
+                    $caution_msg = "Send mail for last step of sign up. Please read mail.";
+                    cacti_log("SIGNUP: send mail for last step of sign up", false, "AUTH");
+                }
+            }
+        }
+    }
+}
+if ($action == 's3') {
+    /* ================= input validation ================= */
+    input_validate_input_regex(get_request_var_request("h"), "^([a-z0-9]{64})$");
+    /* ==================================================== */
+    $hash1 = get_request_var_request("h");
+    
+    include_once("./lib/ldap.php");
+    $ldap_dn_search_response = cacti_ldap_search_dn("dummy", "", "", "", "", "", "", "", "", "", "description=$hash1*", "", "", array("uid"));
+    if ($ldap_dn_search_response["error_num"] == "0") {
+        $ldap_dn_add_response = cacti_ldap_mod_dn(2, $ldap_dn_search_response["uid"]["0"], array("pwdLockout" => "FALSE"));
+        if ($ldap_dn_add_response["error_num"] == "0") {
+            $caution_msg = "Sign up success. Please login.";
+            cacti_log("SIGNUP: sign up success", false, "AUTH");
+        }
+    }
+}
+// reset password
+if ($action == 'f2') {
+    /* ================= input validation ================= */
+    input_validate_input_regex(get_request_var_request("mail_address"), "^([A-Za-z0-9]+[\w-]*@[\w\.-]+\.\w{2,})$");
+    /* ==================================================== */
+    $mailaddr = get_request_var_request("mail_address");
+    
+    include_once("./lib/ldap.php");
+    $ldap_dn_search_response = cacti_ldap_search_dn("dummy", "", "", "", "", "", "", "", "", "", "mail=$mailaddr", "", "", array("uid","description"));
+    if ($ldap_dn_search_response["error_num"] == "0") {
+        // send mail
+        $message = file_get_contents("./text/forgot_mail.txt") . "http://" . $_SERVER["SERVER_NAME"] . "/index.php?a=f3&u=" . $ldap_dn_search_response["uid"]["0"] . "&h=" . substr($ldap_dn_search_response["description"]["0"], 64);
+        $message = str_replace("%USERNAME%", $ldap_dn_search_response["uid"]["0"], $message);
+        $errors = send_mail($mailaddr, "", "Resmon reset password", $message);
+        if ($errors == "") {
+            $caution_msg = "Send mail for reset password. Please read mail.";
+            cacti_log("SIGNUP: send mail for reset password", false, "AUTH");
+        }
+    } else {
+        auth_display_custom_error_message("Sorry. can't find your mail address.");
+        cacti_log("SIGNUP: can't find your mail address.", false, "AUTH");
+    }
+}
+if ($action == 'f4') {
+    /* ================= input validation ================= */
+    input_validate_input_regex(get_request_var_request("h"), "^([a-z0-9]{64})$");
+    input_validate_input_regex(get_request_var_request("login_password"), "^([\w\=\+\-\*\/\%\^\~\!\?\&\|\@\#\$\(\)\[\]\{\}\<\>\,\.\;\:]{6,})$");
+    /* ==================================================== */
+    $hash2 = get_request_var_request("h");
+    $password = get_request_var_request("login_password");
+    
+    include_once("./lib/ldap.php");
+    $ldap_dn_search_response = cacti_ldap_search_dn("dummy", "", "", "", "", "", "", "", "", "", "description=*$hash2", "", "", array("uid"));
+    if ($ldap_dn_search_response["error_num"] == "0") {
+        $hash1 = hash_hmac('sha256', $ldap_dn_search_response["uid"]["0"] . $_SERVER["REMOTE_ADDR"] . $_SERVER["HTTP_USER_AGENT"], FALSE);
+        $hash2 = hash_hmac("sha256", $ldap_dn_search_response["uid"]["0"] . time() . $password, FALSE);
+        $ldap_dn_add_response = cacti_ldap_mod_dn(2, $ldap_dn_search_response["uid"]["0"], array("description" => $hash1 . $hash2, "userPassword" => $password));
+        if ($ldap_dn_add_response["error_num"] == "0") {
+            $caution_msg = "Reset user password successed.";
+            cacti_log("SIGNUP: reset user password successed", false, "AUTH");
+            setcookie("stay_login", "", time() - 3600,"/");
+        }
+    } else {
+        auth_display_custom_error_message("Sorry. can't reset your password.");
+        cacti_log("SIGNUP: can't reset your password.", false, "AUTH");
+    }
+}
+
+function generate_user_env($user) {
+    $hash = hash_hmac("sha256", $username . time() . get_request_var_post("login_password"), FALSE);
+
+    // private tree
+    system("php ./cli/add_tree.php --type=tree --name='" . $hash . "' --sort-method=alpha", $return);
+    if ($return != 0) {
+        error_generate_user_env($user['id'], "error_generate_user_env code:1");
+        exit;
+    }
+    $tree_id = db_fetch_cell("SELECT id FROM graph_tree WHERE name = '" . $hash . "'");
+    if (!isset($tree_id)) {
+        error_generate_user_env($user['id'], "error_generate_user_env code:2");
+        exit;
+    }
+    db_execute("UPDATE graph_tree SET name='Private' WHERE id = '" . $tree_id ."'");
+    // private tree -> favorite header
+    system("php ./cli/add_tree.php --type=node --node-type=header --tree-id=" . $tree_id . " --name='Favorites'", $return);
+    if ($return != 0) {
+        error_generate_user_env($user['id'], "error_generate_user_env code:4");
+        exit;
+    }
+    system("php ./cli/add_perms.php --user-id=" . $user['id'] . " --item-type=tree --item-id=" . $tree_id, $return);
+    if ($return != 0) {
+        error_generate_user_env($user['id'], "error_generate_user_env code:3");
+        exit;
+    }
+    // user resource
+    define("GRAPH_TEMPLATE_ID", 35);
+    define("HOST_ID"          , 3);
+    define("TITLE"            , "|host_description| - User Resources ID:");
+    define("DATA_TEMPLATE_ID" , 49);
+    system("php ./cli/add_graphs.php --graph-type=cg --graph-template-id=" . GRAPH_TEMPLATE_ID . " --host-id=" . HOST_ID . " --graph-title='" . TITLE . $user['id'] . "' --input-fields='" . DATA_TEMPLATE_ID . ":user_id=" . $user['id'] . "' --data-title='" . TITLE . $user['id'] . "' --force", $return);
+    if ($return != 0) {
+        error_generate_user_env($user['id'], "error_generate_user_env code:5");
+        exit;
+    }
+    $graph_id = db_fetch_cell("SELECT graph_templates_graph.local_graph_id FROM graph_templates_graph WHERE graph_template_id = '" . GRAPH_TEMPLATE_ID . "' AND title = '" . TITLE . $user['id'] . "'");
+    if (!isset($graph_id)) {
+        error_generate_user_env($user['id'], "error_generate_user_env code:6");
+        exit;
+    }
+    system("php ./cli/add_tree.php --type=node --node-type=graph --tree-id=" . $tree_id . " --graph-id=" . $graph_id, $return);
+    if ($return != 0) {
+        error_generate_user_env($user['id'], "error_generate_user_env code:7");
+        exit;
+    }
+    system("php ./cli/add_perms.php --user-id=" . $user['id'] . " --item-type=graph --item-id=" . $graph_id, $return);
+    if ($return != 0) {
+        error_generate_user_env($user['id'], "error_generate_user_env code:8");
+        exit;
+    }
+    // none device
+    system("php ./cli/add_device.php --description='" . $hash ."' --ip='" . $hash . "' --template=0 --avail=none --version=0", $return);
+    if ($return != 0) {
+        error_generate_user_env($user['id'], "error_generate_user_env code:9");
+        exit;
+    }
+    $host_id = db_fetch_cell("SELECT id FROM host WHERE description = '". $hash . "'");
+    if (!isset($host_id)) {
+        error_generate_user_env($user['id'], "error_generate_user_env code:10");
+        exit;
+    }
+    db_execute("UPDATE host SET description='None Host',hostname='localhost' WHERE id = '" . $host_id ."'");
+    system("php ./cli/add_tree.php --type=node --node-type=host --tree-id=" . $tree_id . " --host-id=" . $host_id . " --host-group-style=1", $return);
+    if ($return != 0) {
+        error_generate_user_env($user['id'], "error_generate_user_env code:11");
+        exit;
+    }
+    system("php ./cli/add_perms.php --user-id=" . $user['id'] . " --item-type=host --item-id=" . $host_id, $return);
+    if ($return != 0) {
+        error_generate_user_env($user['id'], "error_generate_user_env code:12");
+        exit;
+    }
+    // thold notification list
+    $ldap_dn_search_response = cacti_ldap_search_dn($user['username'], "", "", "", "", "", "", "", "", "", "", "", "", array("mail"));
+    if ($ldap_dn_search_response["error_num"] != "0") {
+        error_generate_user_env($user['id'], "error_generate_user_env code:13");
+        exit;
+    }
+    foreach (array("alert", "warning") as $priority) {
+        unset($save);
+        $save["id"]          = 0;
+        $save["name"]        = $user['username'] . "_" . $priority;
+        $save["description"] = " ";
+        $save["emails"]      = $ldap_dn_search_response["mail"]["0"];
+        if (!is_error_message()) {
+            $id = sql_save($save, "plugin_notification_lists");
+            if ($id) {
+                raise_message(1);
+            } else {
+                raise_message(2);
+            }
+        }
+    }
+}
+
+function error_generate_user_env($user_id, $message) {
+	db_execute("UPDATE user_auth SET enabled = '' WHERE id = '$user_id'");
+	cacti_log($message, false, "AUTH");
+	auth_display_custom_error_message($message);
+}
+
+function get_stay_logon_user() {
+    $cookie = explode(":", $_COOKIE['stay_login']);
+    $hash1 = hash_hmac("sha256", $cookie[0] . $_SERVER["REMOTE_ADDR"] . $_SERVER["HTTP_USER_AGENT"], FALSE);
+
+    include_once("./lib/ldap.php");
+    $ldap_dn_search_response = cacti_ldap_search_dn("dummy", "", "", "", "", "", "", "", "", "", "description=$hash1*", "", "", array("uid","description"));
+    if ($ldap_dn_search_response["error_num"] == "0") {
+        if($ldap_dn_search_response["uid"]["0"] === $cookie[0] && substr($ldap_dn_search_response["description"]["0"], 64) === $cookie[1]) {
+            $username = $ldap_dn_search_response["uid"]["0"];
+        } else {
+            setcookie("stay_login", "", time() - 3600,"/");
+        }
+    }
+    return $username;
+}
+
+function set_stay_logon_user($username) {
+    include_once("./lib/ldap.php");
+    $ldap_dn_search_response = cacti_ldap_search_dn($username, "", "", "", "", "", "", "", "", "", "", "", "", array("description"));
+    if ($ldap_dn_search_response["error_num"] == "0") {
+        $hash1 = hash_hmac('sha256', $username . $_SERVER["REMOTE_ADDR"] . $_SERVER["HTTP_USER_AGENT"], FALSE);
+        $hash2 = substr($ldap_dn_search_response["description"]["0"], 64);
+        $ldap_dn_add_response = cacti_ldap_mod_dn(2, $username, array("description" => $hash1 . $hash2));
+        if ($ldap_dn_add_response["error_num"] == "0") {
+            setcookie("stay_login", $username . ":" . $hash2, time() + 30 * 24 * 60 * 60,"/");   // 30d * 24h * 60m * 60s
+        }
+    }
+}
+/* modify for multi user end */
+
 /* auth_display_custom_error_message - displays a custom error message to the browser that looks like
      the pre-defined error messages
    @arg $message - the actual text of the error message to display */
@@ -267,7 +566,7 @@ if (api_plugin_hook_function('custom_login', OPER_MODE_NATIVE) == OPER_MODE_RESK
 <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
 <html>
 <head>
-	<title><?php print api_plugin_hook_function("login_title", "Login to Cacti");?></title>
+	<title><?php print api_plugin_hook_function("login_title", "Login to Resmon");?></title>
 	<meta http-equiv="Content-Type" content="text/html;charset=utf-8">
 	<STYLE TYPE="text/css">
 	<!--
@@ -276,11 +575,25 @@ if (api_plugin_hook_function('custom_login', OPER_MODE_NATIVE) == OPER_MODE_RESK
 		A:active { text-decoration: none;}
 		A:hover {text-decoration: underline; color: #333333;}
 		A:visited {color: Blue;}
+                #foot{position:absolute; bottom:0px; height:30px; width:99%; text-align:center;}
 	-->
 	</style>
+        <script type="text/javascript">
+
+        var _gaq = _gaq || [];
+        _gaq.push(['_setAccount', 'UA-33140835-1']);
+        _gaq.push(['_trackPageview']);
+
+        (function() {
+            var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+            ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+            var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+        })();
+
+        </script>
 </head>
 <body bgcolor="#FFFFFF" onload="document.login.login_username.focus()">
-	<form name="login" method="post" action="<?php print basename($_SERVER["PHP_SELF"]);?>">
+	<form name="login" method="post" action="<?php print basename($_SERVER["REQUEST_URI"]);?>">
 	<input type="hidden" name="action" value="login">
 <?php
 
@@ -317,9 +630,11 @@ $cacti_logo = api_plugin_hook_function('cacti_image', $cacti_logo);
 
 		<tr style="height:10px;"><td></td></tr>
 		<tr id="login_row">
-			<td colspan="2">Please enter your Cacti user name and password below:</td>
+			<td colspan="2"><div id="message">Please enter your Resmon user name and password below:</div></td>
 		</tr>
 		<tr style="height:10px;"><td></td></tr>
+        <?php /* modify for multi user start */ 
+        if (empty($_GET["a"]) || $_GET["a"] === "s1" || $_GET["a"] === "f3") { ?>
 		<tr id="user_row">
 			<td>User Name:</td>
 			<td><input type="text" name="login_username" size="40" style="width: 295px;" value="<?php print htmlspecialchars($username); ?>"></td>
@@ -328,10 +643,79 @@ $cacti_logo = api_plugin_hook_function('cacti_image', $cacti_logo);
 			<td>Password:</td>
 			<td><input type="password" name="login_password" size="40" style="width: 295px;"></td>
 		</tr>
+        <?php } if ($_GET["a"] === "s1" || $_GET["a"] === "f1") { ?>
+        <tr id="mail_row">
+            <td>Mail Address:</td>
+            <td><input type="text" name="mail_address" size="40" style="width: 295px;"></td>
+        </tr>
+        <?php } ?>
+        <script type="text/javascript">
+        <!--
+        window.onload = function() {
+            var caution_msg = '<?php if (isset($caution_msg)) print "$caution_msg"; ?>';
+            if (caution_msg != '') {
+                outputMsg(true,caution_msg);
+            } else {
+                if(window.location.search.substring(1).match(/a=(\w+)/)){
+                    switch (RegExp.$1) {
+                        case 's1' : outputMsg(false,'Please enter user name, password and mail below:'); break;
+                        case 'f1' : outputMsg(false,'Please enter your registered mail address below:'); break;
+                        case 'f3' : outputMsg(false,'Please enter new password below:'); break;
+                    }
+                }
+            }
+            if(window.location.search.substring(1).match(/u=(\w+)/)){
+                document.getElementsByName('login_username').item(0).value=RegExp.$1;
+            }
+        }
+        function checkInput(action) {
+            var param = [
+                ['login_username', 3, /^([A-Za-z0-9]+[\w-]{2,})$/, 'User Name', 'A-Za-z0-9_-'],
+                ['login_password', 6, /^([\w\=\+\-\*\/\%\^\~\!\?\&\|\@\#\$\(\)\[\]\{\}\<\>\,\.\;\:]{6,})$/, 'Password', 'A-Za-z0-9_-=+-*/%^~!?&|@#$()[]{}<>,.;:'],
+                ['mail_address', 6, /^([A-Za-z0-9]+[\w-]*@[\w\.-]+\.\w{2,})$/, 'Mail Address','A-Za-z0-9_@.']
+            ];
+            if (action == 's1') {
+                if (document.getElementsByName('agree').item(0).checked == false) {
+                    outputMsg(true,'Please agree to the terms of service.');
+                    document.getElementsByName('agree').item(0).focus();
+                    return;
+                }
+            } else if (action == 'f1') {
+                param.splice(0, 2); // mail address
+            } else if (action == 'f3') {
+                param.splice(2, 1); // username, password
+            }
+            for (var i in param) {
+                if (!document.getElementsByName(param[i][0]).item(0).value.match(param[i][2])) {
+                    outputMsg(true,'Please enter '+param[i][3]+' at least '+param[i][1]+' characters.<br>Allow character: '+param[i][4]);
+                    document.getElementsByName(param[i][0]).item(0).focus();
+                    return;
+                }
+            }
+            document.getElementsByName('action').item(0).value=action.slice(0,1)+(parseInt(action.slice(1))+1);
+            document.getElementsByName('login').item(0).submit();
+        }
+        function outputMsg(caution,msg) {
+            if(caution) {
+                msg='<strong><font color="#FF0000">'+msg+'</font><strong>';
+            }
+            document.getElementById('message').innerHTML=msg;
+        }
+        -->
+        </script>
 		<?php
 		if (read_config_option("auth_method") == "3" || api_plugin_hook_function('login_realms_exist')) {
 			$realms = api_plugin_hook_function('login_realms', array("local" => array("name" => "Local", "selected" => false), "ldap" => array("name" => "LDAP", "selected" => true)));
-			?>
+            $ldap = FALSE;
+            foreach($realms as $name => $realm) {
+                if ($name === "ldap") {
+                    print "\t<input type=\"hidden\" name=\"realm\" value=\"ldap\">\n";
+                    $ldap = TRUE;
+                    break;
+                }
+            }
+            if ($ldap == FALSE) {
+            ?>
 		<tr id="realm_row">
 			<td>Realm:</td>
 			<td>
@@ -345,13 +729,23 @@ $cacti_logo = api_plugin_hook_function('cacti_image', $cacti_logo);
 				</select>
 			</td>
 		</tr>
-		<?php }?>
-		<tr style="height:10px;"><td></td></tr>
+		<?php }} ?>
+		<tr style="height:10px;"><td style="width:90px;"></td></tr>
 		<tr>
-			<td><input type="submit" value="Login"></td>
+            <?php if (empty($_GET["a"])) { ?>
+                <td colspan="2"><input type="submit" value="Login">&nbsp;<input type="checkbox" name="stay_login"<?php ($_COOKIE['stay_login'] ? print " checked" : "") ?>>stay login&nbsp;&nbsp;&nbsp;&nbsp;
+                [ <a href="./graph_view.php">Guest</a> | <a href="./index.php?a=s1">Signup</a> | <a href="./index.php?a=f1">Forgot Password</a> ]</td>
+            <?php } elseif ($_GET["a"] === "s1") { ?>
+                <td colspan="2"><input type="button" value="Create" onClick="checkInput('s1');">&nbsp;<input type="checkbox" name="agree"> I agree to <a href="./text/terms.html">terms</a>&nbsp;&nbsp;&nbsp;&nbsp;
+                [ <a href="./index.php">Login</a> ]</td>
+            <?php } elseif ($_GET["a"] === "f1" || $_GET["a"] === "f3") { ?>
+                <td colspan="2"><input type="button" value="Submit" onClick="checkInput('<?php print $_GET["a"] ?>');">&nbsp;&nbsp;&nbsp;&nbsp;
+                [ <a href="./index.php">Login</a> ]</td>
+            <?php } /* modify for multi user end */ ?>
 		</tr>
 	</table>
 <?php api_plugin_hook('login_after'); ?>
 	</form>
+        <div id="foot" style="position: absolute;">Resmon is a fork of <a href="http://www.cacti.net/">Cacti</a> and is backward compatible.</div>
 </body>
 </html>

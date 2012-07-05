@@ -130,7 +130,7 @@ Error codes:
 
 */
 function cacti_ldap_search_dn($username, $dn = "", $host = "", $port = "", $port_ssl = "", $version = "", $encryption = "",
-	$referrals = "", $mode = "", $search_base = "", $search_filter = "", $specific_dn = "", $specific_password = "") {
+	$referrals = "", $mode = "", $search_base = "", $search_filter = "", $specific_dn = "", $specific_password = "", $attrib = "") {
 
 	$ldap = new Ldap;
 
@@ -147,10 +147,48 @@ function cacti_ldap_search_dn($username, $dn = "", $host = "", $port = "", $port
 	if (!empty($search_filter))     $ldap->search_filter     = $search_filter;
 	if (!empty($specific_dn))       $ldap->specific_dn       = $specific_dn;
 	if (!empty($specific_password)) $ldap->specific_password = $specific_password;
+	/* modify for multi user start */
+	if (!empty($attrib))            $ldap->attrib            = $attrib;
+	/* modify for multi user end */
 
 	return $ldap->Search();
 }
 
+/* modify for multi user start */
+/* cacti_ldap_mod_dn
+#	Text
+==============================================================
+0	User add/modify/delete
+1	Unable to add/modify user
+2	Unable to add group member
+
+*/
+function cacti_ldap_mod_dn($modify, $username, $attrib, $dn = "", $host = "", $port = "", $port_ssl = "", $version = "", $encryption = "",
+	$referrals = "", $group_dn = "", $group_attrib = "", $group_member_type = "", $search_base = "", $search_filter = "", $specific_dn = "", $specific_password = "") {
+
+	$ldap = new Ldap;
+
+    if (!empty($modify))            $ldap->modify            = $modify;
+	if (!empty($username))          $ldap->username          = $username;
+	if (!empty($attrib))            $ldap->attrib            = $attrib;
+	if (!empty($dn))                $ldap->dn                = $dn;
+	if (!empty($host))              $ldap->host              = $host;
+	if (!empty($port))              $ldap->port              = $port;
+	if (!empty($port_ssl))          $ldap->port_ssl          = $port_ssl;
+	if (!empty($version))           $ldap->version           = $version;
+	if (!empty($encryption))        $ldap->encryption        = $encryption;
+	if (!empty($referrals))         $ldap->referrals         = $referrals;
+	if (!empty($group_dn))          $ldap->group_dn          = $group_dn;
+	if (!empty($group_attrib))      $ldap->group_attrib      = $group_attrib;
+    if (!empty($group_member_type)) $ldap->group_member_type = $group_member_type;
+	if (!empty($search_base))       $ldap->search_base       = $search_base;
+	if (!empty($search_filter))     $ldap->search_filter     = $search_filter;
+	if (!empty($specific_dn))       $ldap->specific_dn       = $specific_dn;
+	if (!empty($specific_password)) $ldap->specific_password = $specific_password;
+
+	return $ldap->Modify();
+}
+/* modify for multi user end */
 class Ldap {
 	function Ldap() {
 		/* Initialize LDAP parameters for Authenticate */
@@ -245,6 +283,17 @@ class Ldap {
 				}
 			}
 
+            /* modify for multi user start */
+            /* pwdLockout true */
+            $ldap_pwd_lockout = @ldap_compare($ldap_conn, $this->dn, "pwdLockout", "TRUE");
+            if ($ldap_pwd_lockout === true) {
+                $output["error_num"] = "8";
+                $output["error_text"] = "Insufficient access";
+                cacti_log("LDAP: " . $output["error_text"], false, "AUTH");
+                @ldap_close($ldap_conn);
+                return $output;
+            }
+            /* modify for multi user end */
 			/* Bind to the LDAP directory */
 			$ldap_response = @ldap_bind($ldap_conn, $this->dn, $this->password);
 			if ($ldap_response) {
@@ -433,13 +482,25 @@ class Ldap {
 			/* bind to the directory */
 			if (ldap_bind($ldap_conn, $this->specific_dn, $this->specific_password)) {
 				/* Search */
+                /* modify for multi user start */
+                if (empty($this->attrib)) {
 				$ldap_results = ldap_search($ldap_conn, $this->search_base, $this->search_filter, array("dn"));
+                } else {
+                    $ldap_results = ldap_search($ldap_conn, $this->search_base, $this->search_filter, $this->attrib);
+                }
+                /* modify for multi user end */
 				if ($ldap_results) {
 					$ldap_entries =  ldap_get_entries($ldap_conn, $ldap_results);
 
 					if ($ldap_entries["count"] == "1") {
 						/* single response return user dn */
+                        /* modify for multi user start */
+                        if (empty($this->attrib)) {
 						$output["dn"] = $ldap_entries["0"]["dn"];
+                        } else {
+                            $output = $ldap_entries["0"];
+                        }
+                        /* modify for multi user end */
 						$output["error_num"] = "0";
 						$output["error_text"] = "User found";
 						cacti_log("LDAP_SEARCH: User found, DN '%s'" . $output["dn"], false, "AUTH");
@@ -510,6 +571,202 @@ class Ldap {
 
 		return $output;
 	}
+    /* modify for multi user start */
+	function Modify() {
+		$output = array();
+
+		/* function check */
+		if (!function_exists("ldap_connect")) {
+			$output["error_num"] = 99;
+			$output["error_text"] = "PHP LDAP not enabled";
+			return $output;
+		}
+
+		/* validation */
+		if (empty($this->username)) {
+			$output["dn"] = "";
+			$output["error_num"] = "1";
+			$output["error_text"] = "No username defined";
+			cacti_log("LDAP_SEARCH: No username defined", false, "AUTH");
+			return $output;
+		}
+
+		/* Encode username */
+		$this->username = utf8_encode($this->username);
+
+		/* strip bad chars from username - prevent altering filter from username */
+		$this->username = str_replace("&", "", $this->username);
+		$this->username = str_replace("|", "", $this->username);
+		$this->username = str_replace("(", "", $this->username);
+		$this->username = str_replace(")", "", $this->username);
+		$this->username = str_replace("*", "", $this->username);
+		$this->username = str_replace(">", "", $this->username);
+		$this->username = str_replace("<", "", $this->username);
+		$this->username = str_replace("!", "", $this->username);
+		$this->username = str_replace("=", "", $this->username);
+
+		$this->dn = str_replace("<username>", $this->username, $this->dn);
+
+        /* Specific */
+        if (empty($this->specific_dn) || empty($this->specific_password)) {
+            $output["dn"] = $this->dn;
+            $output["error_num"] = "14";
+            $output["error_text"] = "Specific DN and Password required";
+            return $output;
+        }
+
+		$this->search_filter = str_replace("<username>", $this->username, $this->search_filter);
+
+		/* Fix encoding on ldap specific search DN and password */
+		$this->specific_password = utf8_encode($this->specific_password);
+		$this->specific_dn       = utf8_encode($this->specific_dn);
+
+		/* Searching mode */
+		if ($this->encryption == "1") {
+			/* This only works with OpenLDAP, I'm pretty sure this will not work with Solaris, Tony */
+			$ldap_conn = @ldap_connect("ldaps://" . $this->host . ":" . $this->port_ssl);
+		}else{
+			$ldap_conn = @ldap_connect($this->host, $this->port);
+		}
+
+		if ($ldap_conn) {
+			/* Set protocol version */
+			if (!@ldap_set_option($ldap_conn, LDAP_OPT_PROTOCOL_VERSION, $this->version)) {
+				/* protocol error */
+				$output["dn"] = "";
+				$output["error_num"] = "4";
+				$output["error_text"] = "Protocol error, unable to set version";
+				cacti_log("LDAP_SEARCH: " . $output["error_text"], false, "AUTH");
+				@ldap_close($ldap_conn);
+				return $output;
+			}
+
+			/* set referrals */
+			if ($this->referrals == "0") {
+				if (!@ldap_set_option($ldap_conn, LDAP_OPT_REFERRALS, 0)) {
+					/* referrals set error */
+					$output["dn"] = "";
+					$output["error_num"] = "13";
+					$output["error_text"] = "Unable to set referrals option";
+					cacti_log("LDAP_SEARCH: " . $output["error_text"], false, "AUTH");
+					@ldap_close($ldap_conn);
+					return $output;
+				}
+			}
+
+			/* start TLS if requested */
+			if ($this->encryption == "2") {
+				if (!@ldap_start_tls($ldap_conn)) {
+					/* TLS startup error */
+					$output["dn"] = "";
+					$output["error_num"] = "5";
+					$output["error_text"] = "Protocol error, unable to start TLS communications";
+					cacti_log("LDAP_SEARCH: " . $output["error_text"], false, "AUTH");
+					@ldap_close($ldap_conn);
+					return $output;
+				}
+			}
+
+			/* bind to the directory */
+			if (ldap_bind($ldap_conn, $this->specific_dn, $this->specific_password)) {
+                if ($this->modify == 1) {
+                    /* add dn */
+                    $ldap_results = ldap_add($ldap_conn, $this->dn, $this->attrib);
+                    if ($ldap_results == TRUE) {
+                        /* mod_add dn (for group member) */
+                        $attrib[$this->group_attrib] = $this->dn;
+                        $ldap_results = ldap_mod_add($ldap_conn, $this->group_dn, $attrib);
+                        if ($ldap_results == TRUE) {
+                            $output["error_num"] = "0";
+                            $output["error_text"] = "User,Group add";
+                            cacti_log("LDAP_MODIFY: User,Group add, DN=" . $this->dn, false, "AUTH");
+                        } else {
+                            $output["error_num"] = "2";
+                            $output["error_text"] = "Unable to add group member";
+                            cacti_log("LDAP_MODIFY: Unable to add group, DN=" . $this->dn, true, "AUTH");
+                        }
+                    } else {
+                        $output["error_num"] = "1";
+                        $output["error_text"] = "Unable to add user";
+                        cacti_log("LDAP_MODIFY: Unable to add user, DN=" . $this->dn, true, "AUTH");
+                    }
+                } elseif ($this->modify == 2) {
+                    /* modify dn */
+                    $ldap_results = ldap_modify($ldap_conn, $this->dn, $this->attrib);
+                    if ($ldap_results == TRUE) {
+                        $output["error_num"] = "0";
+                        $output["error_text"] = "User modify";
+                        cacti_log("LDAP_MODIFY: User modify, DN=" . $this->dn, true, "AUTH");
+                    } else {
+                        $output["error_num"] = "1";
+                        $output["error_text"] = "Unable to modify user";
+                        cacti_log("LDAP_MODIFY: Unable to modify user, DN=" . $this->dn, true, "AUTH");
+                    }
+                } elseif ($this->modify == 3) {
+                    /* delete dn (for group member) */
+                    $attrib[$this->group_attrib] = $this->dn;
+                    $ldap_results = ldap_mod_del($ldap_conn, $this->group_dn, $attrib);
+                    if ($ldap_results == TRUE) {
+                        $output["error_num"] = "0";
+                        $output["error_text"] = "Group member delete";
+                        cacti_log("LDAP_MODIFY: User delete, DN=" . $this->dn, true, "AUTH");
+                    } else {
+                        $output["error_num"] = "1";
+                        $output["error_text"] = "Unable to delete group member";
+                        cacti_log("LDAP_MODIFY: Unable to delete group member, DN=" . $this->dn, true, "AUTH");
+                    }
+                }
+			}else{
+				/* unable to bind */
+				$ldap_error = ldap_errno($ldap_conn);
+				if ($ldap_error == 0x03) {
+					/* protocol error */
+					$output["dn"] = "";
+					$output["error_num"] = "6";
+					$output["error_text"] = "Protocol error";
+				}elseif ($ldap_error == 0x31) {
+					/* invalid credentials */
+					$output["dn"] = "";
+					$output["error_num"] = "7";
+					$output["error_text"] = "Invalid credentials";
+				}elseif ($ldap_error == 0x32) {
+					/* insuffient access */
+					$output["dn"] = "";
+					$output["error_num"] = "8";
+					$output["error_text"] = "Insufficient access";
+				}elseif ($ldap_error == 0x51) {
+					/* unable to connect to server */
+					$output["dn"] = "";
+					$output["error_num"] = "9";
+					$output["error_text"] = "Unable to connect to server";
+				}elseif ($ldap_error == 0x55) {
+					/* timeout */
+					$output["dn"] = "";
+					$output["error_num"] = "10";
+					$output["error_text"] = "Connection Timeout";
+				}else{
+					/* general bind error */
+					$output["dn"] = "";
+					$output["error_num"] = "11";
+					$output["error_text"] = "General bind error, LDAP result: " . ldap_error($ldap_conn);
+				}
+			}
+		}else{
+			/* unable to setup connection */
+			$output["dn"] = "";
+			$output["error_num"] = "2";
+			$output["error_text"] = "Unable to create LDAP connection object";
+		}
+
+		@ldap_close($ldap_conn);
+
+		if ($output["error_num"] > 0) {
+			cacti_log("LDAP_SEARCH: " . $output["error_text"], false, "AUTH");
+		}
+
+		return $output;
+	}
+    /* modify for multi user end */
 }
 
 ?>

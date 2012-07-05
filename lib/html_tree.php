@@ -300,6 +300,16 @@ function grow_edit_graph_tree($tree_id, $user_id, $options) {
 	$i = 0;
 	if (sizeof($tree) > 0) {
 	foreach ($tree as $leaf) {
+        /* modify for multi user start */
+        $permission = check_tree_item($leaf["id"]);
+        if ($permission == FALSE) {
+            if($_SESSION["permission"] == ACCESS_ADMINISTRATOR && ($leaf["graph_tree_id"] != $_SESSION["public_tree_id"] && $leaf["graph_tree_id"] != $_SESSION["private_tree_id"])){
+                // administrator can view other private tree
+            } else {
+                continue;
+            }
+        }
+        /* modify for multi user end */
 		$tier = tree_tier($leaf["order_key"]);
 		$transparent_indent = "<img src='images/transparent_line.gif' style='padding-right:" . (($tier-1) * 20) . "px;' style='height:1px;' align='middle' alt=''>&nbsp;";
 		$sort_cache[$tier] = $leaf["sort_children_type"];
@@ -310,23 +320,46 @@ function grow_edit_graph_tree($tree_id, $user_id, $options) {
 
 		if ($leaf["local_graph_id"] > 0) {
 			if ($visible) {
+                /* modify for multi user start */
+                if ($_SESSION["permission"] == ACCESS_ADMINISTRATOR || $permission == TREE_ITEM_PRIVATE) {
 				print "<td bgcolor='#$row_color'>$transparent_indent<a href='" . htmlspecialchars("tree.php?action=item_edit&tree_id=" . $_GET["id"] . "&id=" . $leaf["id"]) . "'>" . $leaf["graph_title"] . "</a></td>\n";
+                } elseif ($permission == TREE_ITEM_PUBLIC) {
+                    $local_graph_id = db_fetch_cell("SELECT local_graph_id FROM graph_tree_items WHERE id = '" . $leaf["id"] . "'");
+                    print "<td bgcolor='#$row_color'><a href='graph.php?action=properties&local_graph_id=" . $local_graph_id . "&rra_id=0&view_type=tree'>$transparent_indent" . $leaf["graph_title"] . "</a></td>\n";
+                } else {
+                    print "<td bgcolor='#$row_color'>$transparent_indent" . $leaf["graph_title"] . "</td>\n";
+                }
+                /* modify for multi user end */
 				print "<td bgcolor='#$row_color'>Graph</td>";
 			}
 		}elseif ($leaf["title"] != "") {
 			$icon = get_icon($leaf["graph_tree_id"], $leaf["order_key"]);
 			if ($visible) {
+                /* modify for multi user start */
+                if ($_SESSION["permission"] == ACCESS_ADMINISTRATOR || $permission == TREE_ITEM_PRIVATE) {
 				print "<td bgcolor='#$row_color'>$transparent_indent<a href='" . htmlspecialchars("tree.php?action=edit&id=" . $_GET["id"] . "&leaf_id=" . $leaf["id"] . "&subaction=change") . "'><img src='" . $icon . "' border='0'></a><a href='" . htmlspecialchars("tree.php?action=item_edit&tree_id=" . $_GET["id"] . "&id=" . $leaf["id"]) . "'>&nbsp;<strong>" . htmlspecialchars($leaf["title"]) . "</strong></a> (<a href='" . htmlspecialchars("tree.php?action=item_edit&tree_id=" . $_GET["id"] . "&parent_id=" . $leaf["id"]) . "'>Add</a>)</td>\n";
+                } else {
+                    print "<td bgcolor='#$row_color'>$transparent_indent<a href='" . htmlspecialchars("tree.php?action=edit&id=" . $_GET["id"] . "&leaf_id=" . $leaf["id"] . "&subaction=change") . "'><img src='" . $icon . "' border='0'></a>&nbsp;<strong>" . htmlspecialchars($leaf["title"]) . "</strong></td>\n";
+                }
+                /* modify for multi user end */
 				print "<td bgcolor='#$row_color'>Heading</td>";
 			}
 		}elseif ($leaf["host_id"] > 0) {
 			if ($visible) {
+                /* modify for multi user start */
+                if ($_SESSION["permission"] == ACCESS_ADMINISTRATOR || $permission == TREE_ITEM_PRIVATE) {
 				print "<td bgcolor='#$row_color'>$transparent_indent<a href='" . htmlspecialchars("tree.php?action=item_edit&tree_id=" . $_GET["id"] . "&id=" . $leaf["id"]) . "'><strong>Host:</strong> " . htmlspecialchars($leaf["hostname"]) . "</a>&nbsp;<a href='" . htmlspecialchars("host.php?action=edit&id=" . $leaf["host_id"]) . "'>(Edit host)</a></td>\n";
+                } else {
+                    print "<td bgcolor='#$row_color'>$transparent_indent<strong>Host:</strong> " . htmlspecialchars($leaf["hostname"]) . "</td>\n";
+                }
+                /* modify for multi user end */
 				print "<td bgcolor='#$row_color'>Host</td>";
 			}
 		}
 
 		if ($visible) {
+            /* modify for multi user start */
+            if ($_SESSION["permission"] == ACCESS_ADMINISTRATOR || ($permission == TREE_ITEM_PRIVATE || $permission == TREE_ITEM_OTHER)) {
 			if ( ((isset($sort_cache{$tier-1})) && ($sort_cache{$tier-1} != TREE_ORDERING_NONE)) || ($tree_sorting_type != TREE_ORDERING_NONE) )  {
 				print "<td bgcolor='#$row_color' width='80'></td>\n";
 			}else{
@@ -335,10 +368,22 @@ function grow_edit_graph_tree($tree_id, $user_id, $options) {
 					<a href='" . htmlspecialchars("tree.php?action=item_moveup&id=" . $leaf["id"] . "&tree_id=" . $_GET["id"]) . "'><img src='images/move_up.gif' border='0' alt='Move Up'></a>\n
 					</td>\n";
 			}
+            } else {
+                print "<td bgcolor='#$row_color' width='80'></td>\n";
+            }
 
+            if ($_SESSION["permission"] == ACCESS_ADMINISTRATOR || 
+                ($leaf["local_graph_id"] != 0 && $permission == TREE_ITEM_PUBLIC) ||                // public graph
+                ($leaf["local_graph_id"] != 0 && $permission == TREE_ITEM_OTHER && $tier > 1) ||    // favorites graph
+                ($leaf["host_id"] != 0 && $permission == TREE_ITEM_PRIVATE && $tier > 1) ||         // private host over tier1
+                ($leaf["host_id"] == 0 && $permission == TREE_ITEM_PRIVATE)) {                      // private header or graph
 			print 	"<td bgcolor='#$row_color' align='right'>\n
 				<a href='" . htmlspecialchars("tree.php?action=item_remove&id=" . $leaf["id"] . "&tree_id=$tree_id") . "'><img src='images/delete_icon.gif' style='height:10px;width:10px;' border='0' alt='Delete'></a>\n
 				</td></tr>\n";
+            } else {
+				print 	"<td bgcolor='#$row_color' align='right'></td></tr>\n";
+            }
+            /* modify for multi user end */
 		}
 	}
 	}else{
@@ -589,6 +634,15 @@ function create_dhtml_tree() {
 
 			if (sizeof($hierarchy) > 0) {
 				foreach ($hierarchy as $leaf) {
+                    /* modify for multi user start */
+                    if ($tree["id"] == $_SESSION["public_tree_id"]) {
+                        $tier = tree_tier($leaf["order_key"]);
+                        $order_key = substr($leaf["order_key"], 0, ($tier*CHARS_PER_TIER));
+                        if (!db_fetch_cell("SELECT id FROM graph_tree_items WHERE graph_tree_id = '" . $_SESSION["public_tree_id"] . "' AND local_graph_id > 0 AND order_key LIKE '" . $order_key . "%' LIMIT 1")) {
+                            continue;
+                        }
+                    }
+                    /* modify for multi user end */
 					$i++;
 					$tier = tree_tier($leaf["order_key"]);
 
@@ -709,10 +763,23 @@ function grow_right_pane_tree($tree_id, $leaf_id, $host_group_data) {
 		/* get policy information for the sql where clause */
 		$sql_where = get_graph_permissions_sql($current_user["policy_graphs"], $current_user["policy_hosts"], $current_user["policy_graph_templates"]);
 		$sql_where = (empty($sql_where) ? "" : "AND $sql_where");
+        /* modify for multi user start */
+        if ($_SESSION["permission"] <= ACCESS_ADMINISTRATOR && $tree_id == $_SESSION["public_tree_id"]) {
+            $sql_join = "
+                LEFT JOIN (SELECT local_graph_id ,COUNT(local_graph_id) AS count FROM graph_tree_items WHERE local_graph_id != '0' GROUP BY local_graph_id) AS gti ON graph_tree_items.local_graph_id = gti.local_graph_id 
+                LEFT JOIN host ON (host.id=graph_local.host_id)
+                LEFT JOIN graph_templates ON (graph_templates.id=graph_local.graph_template_id)
+                LEFT JOIN user_auth_perms ON (graph_templates_graph.local_graph_id=user_auth_perms.item_id AND user_auth_perms.type=1)";
+            $sql_order = "gti.count DESC";
+            
+        } else {
 		$sql_join = "
 			LEFT JOIN host ON (host.id=graph_local.host_id)
 			LEFT JOIN graph_templates ON (graph_templates.id=graph_local.graph_template_id)
 			LEFT JOIN user_auth_perms ON ((graph_templates_graph.local_graph_id=user_auth_perms.item_id AND user_auth_perms.type=1 AND user_auth_perms.user_id=" . $_SESSION["sess_user_id"] . ") OR (host.id=user_auth_perms.item_id and user_auth_perms.type=3 and user_auth_perms.user_id=" . $_SESSION["sess_user_id"] . ") OR (graph_templates.id=user_auth_perms.item_id AND user_auth_perms.type=4 AND user_auth_perms.user_id=" . $_SESSION["sess_user_id"] . "))";
+        $sql_order = "graph_tree_items.order_key";
+        }
+        /* modify for multi user end */
 	}
 
 	/* get information for the headers */
@@ -1004,6 +1071,7 @@ function grow_right_pane_tree($tree_id, $leaf_id, $host_group_data) {
 			$sql_where = (empty($sql_where) ? "" : "AND (title_cache LIKE '%" . get_request_var_request("filter") . "%' OR graph_templates_graph.title LIKE '%" . get_request_var_request("filter") . "%')");
 		}
 
+        /* modify for multi user start */
 		$graph_list = db_fetch_assoc("SELECT
 			graph_tree_items.id,
 			graph_tree_items.title,
@@ -1021,7 +1089,8 @@ function grow_right_pane_tree($tree_id, $leaf_id, $host_group_data) {
 			AND graph_tree_items.local_graph_id>0
 			$sql_where
 			GROUP BY graph_tree_items.id
-			ORDER BY graph_tree_items.order_key");
+			ORDER BY $sql_order");
+        /* modify for multi user end */
 	}elseif ($leaf_type == "host") {
 		/* graph template grouping */
 		if ($leaf["host_grouping_type"] == HOST_GROUPING_GRAPH_TEMPLATE) {
@@ -1048,7 +1117,7 @@ function grow_right_pane_tree($tree_id, $leaf_id, $host_group_data) {
 					$sql_where = (empty($sql_where) ? "" : "AND (title_cache LIKE '%" . get_request_var_request("filter") . "%')");
 				}
 
-				$graphs = db_fetch_assoc("SELECT
+				$graphs = db_fetch_assoc("SELECT DISTINCT
 					graph_templates_graph.title_cache,
 					graph_templates_graph.local_graph_id,
 					graph_templates_graph.height

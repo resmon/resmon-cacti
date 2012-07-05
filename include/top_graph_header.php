@@ -37,6 +37,11 @@ input_validate_input_number(get_request_var_request("graph_start"));
 input_validate_input_number(get_request_var_request("graph_end"));
 /* ==================================================== */
 
+/* modify for multi user start */
+if (isset($_REQUEST["local_graph_id"])) {
+    if (!check_graph($_REQUEST["local_graph_id"])) access_denied();
+}
+/* modify for multi user end */
 if (read_config_option("auth_method") != 0) {
 	/* at this point this user is good to go... so get some setting about this
 	user and put them into variables to save excess SQL in the future */
@@ -133,7 +138,10 @@ $page_title = api_plugin_hook_function('page_title', draw_navigation_text("title
 					<td align="right">
 						<?php if ((isset($_SESSION["sess_user_id"])) && ($using_guest_account == false)) { api_plugin_hook('nav_login_before'); ?>
 						Logged in as <strong><?php print db_fetch_cell("select username from user_auth where id=" . $_SESSION["sess_user_id"]);?></strong> (<a href="<?php echo $config['url_path']; ?>logout.php">Logout</a>)&nbsp;
-						<?php api_plugin_hook('nav_login_after'); } ?>
+						<?php api_plugin_hook('nav_login_after'); } /* modify for multi user start */ else { ?>
+                        (<a href="<?php echo $config['url_path']; ?>index.php">Login</a>)&nbsp
+                        <?php } /* modify for multi user end */ ?>
+
 					</td>
 				</tr>
 			</table>
@@ -164,7 +172,52 @@ $page_title = api_plugin_hook_function('page_title', draw_navigation_text("title
 				$graph_data_array["graph_end"] = get_request_var_request("graph_end");
 			}
 
+            /* modify for multi user start */            
+            if ($_SESSION["permission"] < ACCESS_ADMINISTRATOR) {
+                $permission = check_graph($_GET["local_graph_id"]);
+                if ((isset($_SESSION["sess_user_id"])) && ($using_guest_account == false)) {
+                    // add public
+                    if ($permission == GRAPH_PRIVATE) {
+                        print "&nbsp;<a href=\"./graph.php?action=properties&local_graph_id=" . $_GET["local_graph_id"] . "&rra_id=" . $_GET["rra_id"] . "&tree=public\"><img src=\"images/public_enable_icon.png\" style=\"border:none;vertical-align:text-bottom;\">Add to public</a>";
+                        if(isset($_GET["tree"]) && $_GET["tree"] === "public") {
+                            $tree_item_id = get_category_id($_SESSION["public_tree_id"],$_GET["local_graph_id"]);
+                            exec("php ./cli/add_tree.php --type=node --node-type=graph --tree-id=" . $_SESSION["public_tree_id"] . " --parent-node=" . $tree_item_id . " --graph-id=" . $_GET["local_graph_id"]);
+                            exec("php ./cli/add_perms.php --user-id=" . $_SESSION["sess_user_id"] . " --item-type=graph --item-id=" . $_GET["local_graph_id"]);
+                            if (isset($_SESSION['dhtml_tree'])) unset($_SESSION['dhtml_tree']);
+                            header("Location: graph.php?action=properties&local_graph_id=" . $_GET["local_graph_id"] . "&rra_id=" . $_GET["rra_id"]); exit;
+                        }
+                    // remove public
+                    } elseif ($permission == GRAPH_PRIVATE + GRAPH_PUBLIC) {
+                        $tree_item_id = db_fetch_cell("SELECT graph_tree_items.id FROM graph_tree_items WHERE graph_tree_id = '" . $_SESSION["public_tree_id"] . "' AND local_graph_id = '" . $_GET["local_graph_id"] . "'");
+                        print "&nbsp;<a href=\"./tree.php?action=item_remove&id=" . $tree_item_id . "&tree_id=" . $_SESSION["public_tree_id"] . "\"><img src=\"images/public_disable_icon.png\" style=\"border:none;vertical-align:text-bottom;\">Remove from Public</a>";
+                    // add favorite
+                    } elseif ($permission == GRAPH_PUBLIC) {
+                        print "&nbsp;<a href=\"./graph.php?action=properties&local_graph_id=" . $_GET["local_graph_id"] . "&rra_id=" . $_GET["rra_id"] . "&tree=favorites\"><img src=\"images/fav_enable_icon.png\" style=\"border:none;vertical-align:text-bottom;\">Add to favorites</a>";
+                        if(isset($_GET["tree"]) && $_GET["tree"] === "favorites") {
+                            $tree_item_id = db_fetch_cell("SELECT graph_tree_items.id FROM graph_tree_items WHERE graph_tree_id = '" . $_SESSION["private_tree_id"] . "' AND title = 'Favorites'");
+                            exec("php ./cli/add_tree.php --type=node --node-type=graph --tree-id=" . $_SESSION["private_tree_id"] . " --parent-node=" . $tree_item_id . " --graph-id=" . $_GET["local_graph_id"]);
+                            exec("php ./cli/add_perms.php --user-id=" . $_SESSION["sess_user_id"] . " --item-type=graph --item-id=" . $_GET["local_graph_id"]);
+                            if (isset($_SESSION['dhtml_tree'])) unset($_SESSION['dhtml_tree']);
+                            header("Location: graph.php?action=properties&local_graph_id=" . $_GET["local_graph_id"] . "&rra_id=" . $_GET["rra_id"]); exit;
+                        }
+                    // remove favorite
+                    } elseif ($permission == GRAPH_OTHER + GRAPH_PUBLIC) {
+                        $tree_item_id = db_fetch_cell("SELECT graph_tree_items.id FROM graph_tree_items WHERE graph_tree_id = '" . $_SESSION["private_tree_id"] . "' AND local_graph_id = '" . $_GET["local_graph_id"] . "'");
+                        print "&nbsp;<a href=\"./tree.php?action=item_remove&id=" . $tree_item_id . "&tree_id=" . $_SESSION["public_tree_id"] . "\"><img src=\"images/fav_disable_icon.png\" style=\"border:none;vertical-align:text-bottom;\">Remove from favorites</a>";                    
+                    }
+                }
+                if ($permission != GRAPH_PRIVATE) {
+                    // url
+                    $url = "http://". $_SERVER["SERVER_NAME"] . "/gi.php?g=" . $_GET["local_graph_id"] . "&r=" . $_GET["rra_id"];
+                    print "&nbsp;&nbsp;<font class='textEditTitle'>URL:</font><input type=\"text\" value=\"$url\" size=\"50\" onClick=\"javascript:this.select();\">";
+                    // widget
+                    $widget = htmlspecialchars("<script src=\"http://". $_SERVER["SERVER_NAME"] . "/include/widget.js\"></script><script>cactiWidget(" . $_GET["local_graph_id"] . "," . $_GET["rra_id"] . ");</script><div id=\"". $_GET["local_graph_id"] . "_" . $_GET["rra_id"] . "\"></div>");
+                    print "&nbsp;&nbsp;<font class='textEditTitle'>Widget:</font><input type=\"text\" value=\"$widget\" size=\"50\" onClick=\"javascript:this.select();\">";
+                }
+            } else {
 			print trim(@rrdtool_function_graph(get_request_var_request("local_graph_id"), get_request_var_request("rra_id"), $graph_data_array));
+            }
+            /* modify for multi user end */
 			?>
 		</td>
 	</tr>
@@ -195,3 +248,65 @@ $page_title = api_plugin_hook_function('page_title', draw_navigation_text("title
 		</td>
 		<?php } ?>
 		<td valign="top" style="padding: 5px; border-right: #aaaaaa 1px solid;"><div style='position:static;' id='main'>
+<?php
+/* modify for multi user start */
+function get_category_id($tree_id,$local_graph_id) {
+    include_once("./lib/tree.php");
+    $name_order_key = "CAST(SUBSTRING(graph_tree_items.order_key," . (1*CHARS_PER_TIER+1) . "," . CHARS_PER_TIER . ") AS SIGNED)";
+    $flg = db_fetch_cell("
+        SELECT
+            CASE WHEN
+                (SELECT COUNT(id) FROM (SELECT id FROM host_template UNION SELECT id FROM snmp_query) AS template) >
+                (SELECT COUNT(id) FROM graph_tree_items WHERE graph_tree_id = '$tree_id' AND title != '' AND $name_order_key > '0')
+                THEN 1
+            ELSE 0
+        END");
+    if($flg) {
+        $templates = db_fetch_assoc("
+            SELECT category,name FROM (
+                SELECT 'NoHost' AS category,name FROM host_template WHERE name LIKE '%None Host%'
+                UNION
+                SELECT 'Host' AS category,name FROM host_template WHERE name NOT LIKE '%None Host%'
+                UNION
+                SELECT 'SNMP' AS category,name FROM snmp_query
+            ) AS template
+            WHERE template.name NOT IN (SELECT title FROM graph_tree_items WHERE graph_tree_id = '$tree_id' AND title != '' AND $name_order_key > '0')");
+        $rows = db_fetch_assoc("SELECT title FROM graph_tree_items WHERE graph_tree_id = '$tree_id' AND title != '' AND $name_order_key = '0'");
+        foreach ($rows as $row) {
+            $category[] = $row["id"];
+        }
+        $rows = db_fetch_assoc("SELECT title FROM graph_tree_items WHERE graph_tree_id = '$tree_id' AND title != '' AND $name_order_key > '0'");
+        foreach ($rows as $row) {
+            $name[] = $row["id"];
+        }
+        // generate category,name header
+        foreach ($templates as $template) {
+            // category
+            if (!in_array($template["category"], $category)) {
+                exec("php ./cli/add_tree.php --type=node --node-type=header --tree-id=$tree_id --name='" . $template["category"] ."'");
+            }
+            // name
+            if (!in_array($template["name"], $name)) {
+                $tree_item_id = db_fetch_cell("SELECT id FROM graph_tree_items WHERE graph_tree_id = '$tree_id' AND title = '" . $template["category"] . "' AND $name_order_key = '0'");
+                exec("php ./cli/add_tree.php --type=node --node-type=header --tree-id=$tree_id --parent-node=" . $tree_item_id . " --name='" . $template["name"] ."'");
+            }
+        }
+    }
+    // parent_id
+    $id = db_fetch_cell("
+        SELECT DISTINCT graph_tree_items.id FROM graph_local
+            INNER JOIN host_template_graph ON graph_local.graph_template_id = host_template_graph.graph_template_id
+            INNER JOIN host_template ON host_template_graph.host_template_id = host_template.id
+            INNER JOIN graph_tree_items ON host_template.name = graph_tree_items.title AND graph_tree_id = '$tree_id' AND title != '' AND $name_order_key > '0'
+        WHERE graph_local.id = '$local_graph_id' AND graph_local.snmp_query_id = 0
+        UNION
+        SELECT DISTINCT graph_tree_items.id FROM graph_local
+            INNER JOIN snmp_query_graph ON graph_local.graph_template_id = snmp_query_graph.graph_template_id
+            INNER JOIN snmp_query ON snmp_query_graph.snmp_query_id = snmp_query.id
+            INNER JOIN graph_tree_items ON snmp_query.name = graph_tree_items.title AND graph_tree_id = '$tree_id' AND title != '' AND $name_order_key > '0'
+        WHERE graph_local.id = '$local_graph_id' AND graph_local.snmp_query_id > 0");
+    return $id;
+        
+}
+/* modify for multi user start */
+?>
