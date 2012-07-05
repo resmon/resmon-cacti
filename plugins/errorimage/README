@@ -1,0 +1,35 @@
+/*******************************************************************************
+
+    Author ......... Jimmy Conner
+    Contact ........ jimmy@sqmail.org
+    Home Site ...... http://sqmail.org
+    Program ........ Error Image
+
+*******************************************************************************/
+
+----[ Purpose
+
+    This plugin will display an error image instead of a broken graph.
+
+----[ Features
+
+    Displays error image when RRD file does not exist
+
+----[ Installation
+
+	If you have not already done so, install the Plugin Architecture
+	http://cactiusers.org/wiki/PluginArchitectureInstall
+
+	Next install this Plugin using these directions
+	http://cactiusers.org/wiki/PluginsInstall
+
+
+----[ Changelog
+
+    --- 0.2 ---
+    Resize Images to Match Cacti Settings
+
+    --- 0.1 ---
+    Initial release
+
+

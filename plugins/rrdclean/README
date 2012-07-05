@@ -1,0 +1,104 @@
+/*******************************************************************************
+
+    Author ......... Reinhard Scheck
+    Contact ........ gandalf @ cacti forums
+    Home Site ...... http://www.cacti.net
+    Program ........ Cacti RRD file Cleaner
+    Version ........ 0.41
+    Purpose ........ Delete unused rrd files
+    first published by ..... berger@hk-net.de ( 12/2004 )
+    first plugin by ........ Tut
+    modifications by ....... gilles
+
+*******************************************************************************/
+
+
+----[ Purpose
+
+    This plugin analyzes many cacti db structures
+    to determine unused rrd files.
+
+----[ Features
+
+    1) allows for filtering and sorting on
+       - rrd file name
+       - date/timestamp of last rrd file modification
+       - size
+    2) file delete is done by the poller
+       This avoids permission errors or security issues.
+       The same instance that creates rrd files, the poller,
+       will be used for deletion as well.
+
+----[ Prerequisites
+
+    Before you install RRDCleaner, you need to have met the following pre-requisites:
+
+    1) Cacti 0.8.6j or above
+
+----[ Installation
+
+    Install is similar to other plugins.
+    Realm ID 36 is used for pre-PIA2.x. No sql import necessary
+
+----[ Usage
+
+
+----[ Additional Help?
+
+    If you need additional help, please goto forums.cacti.net.
+
+----[ Possible Bugs?
+
+    If you figure out this problem, let me know!!!
+
+----[ Special Thanks
+
+    I want to thank all authors mentioned in the headers
+
+----[ Future Changes
+
+
+----[ Changelog
+
+    --- 0.41 ---
+                 following fixes courtesy Elan Ruusamäe
+    bug:         glob is used as a constant, should be a string
+    bug:         paths that i configured in configuration were not taken
+                 into account, it always went with hardcoded paths
+    bug:         rrdmove was broken
+
+    --- 0.40 ---
+    bug:         0001440: Issue with RRDClean v0.38 and structured paths
+    bug:         avoid sql error on actions table if no actions present
+
+    --- 0.38 ---
+    feature:     Make compatible with rrd structured paths
+    feature:     add a rows selector to the utility
+    feature:     auto-upgrade plugin
+    feature:     change buttons to real ones
+    feautre:     add 'Rescan' option to rebuild tables
+    info:        several miscellaneous fixups
+
+    --- 0.36 ---
+    fix:         Bug Fix for PIA2.1 compatibility, still PIA1.x compliant
+
+    --- 0.35 ---
+    feature:     cleanup of graphs and data sources (courtesy John Rembo)
+    feature:     gui handling in 087 style, no more support for 086!
+    feature:     Support PIA 2.0 plugin handling
+
+    --- 0.34 ---
+    feature:     Cacti 0.8.7x Compatibility
+
+    --- 0.33 ---
+    performance: Faster disk operations, thanks to Crescens
+
+    --- 0.32 ---
+    tweak:       Added some comments to code
+    bug:         Fixed rounding issue for the Totals
+    bug:         Fixed issue when displaying RRDCleaner menu item even if realm not set
+
+    --- 0.31 ---
+    tweak:       Messages reformatted
+    bug:         Size column reformatted for rounded numbers
+    feature:     Omit reload in case of sorting or filtering
